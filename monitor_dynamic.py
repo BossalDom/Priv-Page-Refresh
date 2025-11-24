@@ -2,7 +2,9 @@ from playwright.sync_api import sync_playwright
 import hashlib
 import json
 import os
+import difflib
 from pathlib import Path
+import requests
 
 # --------------- CONFIGURATION ---------------
 
@@ -12,32 +14,37 @@ DYNAMIC_URLS = [
     "https://mgnyconsulting.com/listings/",
 ]
 
-STATE_FILE = Path("dynamic_hashes.json")
+HASH_FILE = Path("dynamic_hashes.json")
+TEXT_FILE = Path("dynamic_texts.json")
+
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL")
 
-# --------------- HELPERS ---------------------
+# --------------- STATE HELPERS ---------------------
 
 
-def load_state():
-    if STATE_FILE.exists():
+def load_json(path: Path):
+    if path.exists():
         try:
-            with STATE_FILE.open("r", encoding="utf-8") as f:
+            with path.open("r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[WARN] Could not read {STATE_FILE}: {e}")
+            print(f"[WARN] Could not read {path}: {e}")
     return {}
 
 
-def save_state(state):
+def save_json(path: Path, data: dict):
     try:
-        with STATE_FILE.open("w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
     except Exception as e:
-        print(f"[WARN] Could not write {STATE_FILE}: {e}")
+        print(f"[WARN] Could not write {path}: {e}")
 
 
-def get_rendered_text(url):
-    """Use Playwright to load the page with JavaScript executed, then return body text."""
+# --------------- PAGE FETCH / DIFF -----------------
+
+
+def get_rendered_text(url: str) -> str | None:
+    """Load page with JavaScript executed, then return body text."""
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(user_agent="PersonalDynamicMonitor/1.0")
@@ -47,29 +54,62 @@ def get_rendered_text(url):
         return text
 
 
-def get_page_hash(url):
-    try:
-        text = get_rendered_text(url)
-        return hashlib.sha256(text.encode("utf-8")).hexdigest()
-    except Exception as e:
-        print(f"[ERROR] Rendering {url}: {e}")
-        return None
+def hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def send_ntfy_alert(url):
+def summarize_diff(old_text: str, new_text: str,
+                   max_lines: int = 20,
+                   max_chars: int = 800) -> str:
+    """
+    Return a short summary of what changed between old_text and new_text.
+    Shows only added lines, truncated.
+    """
+    old_lines = old_text.splitlines()
+    new_lines = new_text.splitlines()
+
+    diff = difflib.unified_diff(
+        old_lines, new_lines,
+        fromfile="old", tofile="new",
+        lineterm=""
+    )
+
+    added = []
+    for line in diff:
+        # Keep only newly added lines, ignore diff headers
+        if line.startswith("+") and not line.startswith("+++"):
+            added.append(line[1:])
+
+    if not added:
+        return "(Content changed but diff is empty or too complex)"
+
+    snippet = "\n".join(added[:max_lines])
+
+    if len(snippet) > max_chars:
+        snippet = snippet[:max_chars] + "\n[diff truncated]"
+
+    return snippet
+
+
+# --------------- NOTIFICATIONS ---------------------
+
+
+def send_ntfy_alert(url: str, diff_summary: str | None):
     if not NTFY_TOPIC_URL:
         print("[WARN] NTFY_TOPIC_URL not set, skipping notification")
         return
 
-    message = f"The dynamic page changed:\n{url}"
+    if diff_summary:
+        body = f"{url}\n\nChanges:\n{diff_summary}"
+    else:
+        body = f"The dynamic website changed:\n{url}"
+
     title = "Dynamic website updated"
 
     try:
-        import requests
-
         resp = requests.post(
             NTFY_TOPIC_URL,
-            data=message.encode("utf-8"),
+            data=body.encode("utf-8"),
             headers={"Title": title, "Priority": "4"},
             timeout=15,
         )
@@ -81,34 +121,51 @@ def send_ntfy_alert(url):
         print(f"[ERROR] Sending ntfy alert: {e}")
 
 
+# --------------- MAIN LOOP ------------------------
+
+
 def run_dynamic_once():
-    state = load_state()
+    hash_state = load_json(HASH_FILE)
+    text_state = load_json(TEXT_FILE)
     changed_any = False
 
     for url in DYNAMIC_URLS:
         print(f"[INFO] Checking dynamic {url}")
-        new_hash = get_page_hash(url)
-        if new_hash is None:
+        try:
+            new_text = get_rendered_text(url)
+        except Exception as e:
+            print(f"[ERROR] Rendering {url}: {e}")
             continue
 
-        old_hash = state.get(url)
+        if new_text is None:
+            continue
 
-        if old_hash is None:
-            print(f"[INIT] Recording initial dynamic hash for {url}")
-            state[url] = new_hash
+        new_hash = hash_text(new_text)
+        old_hash = hash_state.get(url)
+        old_text = text_state.get(url)
+
+        # First time seeing this URL or no stored text yet
+        if old_hash is None or old_text is None:
+            print(f"[INIT] Recording initial dynamic state for {url}")
+            hash_state[url] = new_hash
+            text_state[url] = new_text
             changed_any = True
             continue
 
         if new_hash != old_hash:
             print(f"[CHANGE] Detected dynamic change on {url}")
-            send_ntfy_alert(url)
-            state[url] = new_hash
+            diff_summary = summarize_diff(old_text, new_text)
+            print("[DIFF]\n" + diff_summary)
+            send_ntfy_alert(url, diff_summary)
+            hash_state[url] = new_hash
+            text_state[url] = new_text
             changed_any = True
         else:
             print(f"[NOCHANGE] No dynamic change on {url}")
 
     if changed_any:
-        save_state(state)
+        save_json(HASH_FILE, hash_state)
+        save_json(TEXT_FILE, text_state)
     else:
         print("[INFO] No dynamic changes to save")
 
