@@ -9,7 +9,7 @@ from pathlib import Path
 DYNAMIC_URLS = [
     "https://afny.org/re-rentals",
     "https://iaffordny.com/re-rentals",
-    # add others here if they truly need JS rendering
+    "https://mgnyconsulting.com/listings/",
 ]
 
 STATE_FILE = Path("dynamic_hashes.json")
