@@ -2,7 +2,7 @@ name: Dynamic website monitor
 
 on:
   schedule:
-    # Every 10 minutes between 12:00 and 23:59 UTC (7 to 18 Eastern)
+    # Every 10 minutes between 12:00 and 23:59 UTC (7–18 Eastern)
     - cron: "*/10 12-23 * * *"
   workflow_dispatch:
 
@@ -33,18 +33,15 @@ jobs:
           NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
         run: python monitor_dynamic.py
 
-            - name: Commit updated dynamic hashes
+      - name: Commit updated dynamic hashes
         run: |
           if [[ -n "$(git status --porcelain dynamic_hashes.json)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-
             git pull --rebase origin main || true
-
             git add dynamic_hashes.json
             git commit -m "Update dynamic hashes [skip ci]" || echo "Nothing to commit"
             git push origin HEAD:main || echo "Push failed, will try again next run"
           else
             echo "No dynamic changes to commit"
           fi
-
