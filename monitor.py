@@ -3,15 +3,16 @@ from bs4 import BeautifulSoup
 import hashlib
 import json
 import os
+import difflib
+from pathlib import Path
 
 # --------------- CONFIGURATION ---------------
 
-# Put all the pages you want to monitor here.
-# Each one is a string in quotes, separated by commas.
 URLS = [
+    # put all your static URLs here
     "https://www.nyc.gov/site/hpd/services-and-information/find-affordable-housing-re-rentals.page",
     "https://cgmrcompliance.com/housing-opportunities-1",
-    "https://city5.nyc/",  # currently often returns 502 – may or may not be useful
+    "https://city5.nyc/",
     "https://www.clintonmanagement.com/availabilities/affordable/",
     "https://fifthave.org/re-rental-availabilities/",
     "https://ihrerentals.com/",
@@ -37,33 +38,37 @@ URLS = [
     "https://yourneighborhoodhousing.com/",
 ]
 
-HASH_FILE = "hashes.json"
+HASH_FILE = Path("hashes.json")
+TEXT_FILE = Path("page_texts.json")
 
-# ntfy topic URL comes from a GitHub secret, not hard coded
+# ntfy topic URL comes from GitHub secret
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL")
 
-# --------------- HELPERS ---------------------
+# --------------- STATE HELPERS ---------------------
 
 
-def load_state():
-    if os.path.exists(HASH_FILE):
+def load_json(path: Path):
+    if path.exists():
         try:
-            with open(HASH_FILE, "r", encoding="utf-8") as f:
+            with path.open("r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[WARN] Could not read {HASH_FILE}: {e}")
+            print(f"[WARN] Could not read {path}: {e}")
     return {}
 
 
-def save_state(state):
+def save_json(path: Path, data: dict):
     try:
-        with open(HASH_FILE, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
     except Exception as e:
-        print(f"[WARN] Could not write {HASH_FILE}: {e}")
+        print(f"[WARN] Could not write {path}: {e}")
 
 
-def get_page_hash(url):
+# --------------- PAGE FETCH / DIFF -----------------
+
+
+def fetch_page_text(url: str) -> str | None:
     try:
         headers = {
             "User-Agent": "PersonalMonitor/1.0 (+github actions)"
@@ -73,26 +78,70 @@ def get_page_hash(url):
 
         soup = BeautifulSoup(resp.text, "html.parser")
         text = soup.get_text(separator=" ", strip=True)
-
-        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+        return text
 
     except Exception as e:
         print(f"[ERROR] Fetching {url}: {e}")
         return None
 
 
-def send_ntfy_alert(url):
+def hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def summarize_diff(old_text: str, new_text: str,
+                   max_lines: int = 20,
+                   max_chars: int = 800) -> str:
+    """
+    Return a short summary of what changed between old_text and new_text.
+    Shows only added/changed lines, truncated.
+    """
+    old_lines = old_text.splitlines()
+    new_lines = new_text.splitlines()
+
+    diff = difflib.unified_diff(
+        old_lines, new_lines,
+        fromfile="old", tofile="new",
+        lineterm=""
+    )
+
+    added = []
+    for line in diff:
+        # Keep only newly added lines, ignore diff headers
+        if line.startswith("+") and not line.startswith("+++"):
+            added.append(line[1:])
+        # Optionally you could also keep lines starting with "-" for removals
+
+    if not added:
+        return "(Content changed but diff is empty or too complex)"
+
+    snippet = "\n".join(added[:max_lines])
+
+    if len(snippet) > max_chars:
+        snippet = snippet[:max_chars] + "\n[diff truncated]"
+
+    return snippet
+
+
+# --------------- NOTIFICATIONS ---------------------
+
+
+def send_ntfy_alert(url: str, diff_summary: str | None):
     if not NTFY_TOPIC_URL:
         print("[WARN] NTFY_TOPIC_URL not set, skipping notification")
         return
 
-    message = f"The website changed:\n{url}"
+    if diff_summary:
+        body = f"{url}\n\nChanges:\n{diff_summary}"
+    else:
+        body = f"The website changed:\n{url}"
+
     title = "Website updated"
 
     try:
         resp = requests.post(
             NTFY_TOPIC_URL,
-            data=message.encode("utf-8"),
+            data=body.encode("utf-8"),
             headers={
                 "Title": title,
                 "Priority": "4",
@@ -107,35 +156,46 @@ def send_ntfy_alert(url):
         print(f"[ERROR] Sending ntfy alert: {e}")
 
 
+# --------------- MAIN LOOP ------------------------
+
+
 def run_once():
-    state = load_state()
+    hash_state = load_json(HASH_FILE)
+    text_state = load_json(TEXT_FILE)
     changed_any = False
 
     for url in URLS:
         print(f"[INFO] Checking {url}")
-        new_hash = get_page_hash(url)
-        if new_hash is None:
+        new_text = fetch_page_text(url)
+        if new_text is None:
             continue
 
-        old_hash = state.get(url)
+        new_hash = hash_text(new_text)
+        old_hash = hash_state.get(url)
+        old_text = text_state.get(url)
 
-        # First time seeing this URL in state
-        if old_hash is None:
-            print(f"[INIT] Recording initial hash for {url}")
-            state[url] = new_hash
+        # First time seeing this URL
+        if old_hash is None or old_text is None:
+            print(f"[INIT] Recording initial state for {url}")
+            hash_state[url] = new_hash
+            text_state[url] = new_text
             changed_any = True
             continue
 
         if new_hash != old_hash:
             print(f"[CHANGE] Detected change on {url}")
-            send_ntfy_alert(url)
-            state[url] = new_hash
+            diff_summary = summarize_diff(old_text, new_text)
+            print("[DIFF]\n" + diff_summary)
+            send_ntfy_alert(url, diff_summary)
+            hash_state[url] = new_hash
+            text_state[url] = new_text
             changed_any = True
         else:
             print(f"[NOCHANGE] No change on {url}")
 
     if changed_any:
-        save_state(state)
+        save_json(HASH_FILE, hash_state)
+        save_json(TEXT_FILE, text_state)
     else:
         print("[INFO] No changes to save")
 
