@@ -1,8 +1,8 @@
 name: Website monitor
 
 on:
-  on:
   schedule:
+    # Every 5 minutes, between 12:00 and 23:59 UTC (7 to 18 Eastern)
     - cron: "*/5 12-23 * * *"
   workflow_dispatch:
 
