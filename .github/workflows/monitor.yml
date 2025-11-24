@@ -1,0 +1,45 @@
+name: Website monitor
+
+on:
+  on:
+  schedule:
+    - cron: "*/5 12-23 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-sites:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
+
+      - name: Run monitor script
+        env:
+          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
+        run: python monitor.py
+
+      - name: Commit updated hashes
+        run: |
+          if [[ -n "$(git status --porcelain hashes.json)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add hashes.json
+            git commit -m "Update hashes [skip ci]"
+            git push
+          else
+            echo "No changes to commit"
+          fi
