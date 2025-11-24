@@ -10,18 +10,14 @@ import os
 # Each one is a string in quotes, separated by commas.
 URLS = [
     "https://www.nyc.gov/site/hpd/services-and-information/find-affordable-housing-re-rentals.page",
-    "https://afny.org/re-rentals",
-    "https://www.google.com/search?q=Affordable+for+New+York+CGMR+Compliance+City5+Clinton+Management+Fifth+Avenue+Committee+iAfford+Infinite+Horizons+Ibis+Advisors+K%26G+Upright+Langsam+Property+Services+MGNY+Micki+Garcia+Realty+Pronto+Housing+Reclaim+HDFC+Related+Management+Company+Reside+New+York+RiseBoro+Riverton+Square+SJP+Tax+Consultants+Inc.+SOIS+Spring+Leasing+and+Management+Stanton+Norfolk+Inc.+Tax+Solute+Taxace+NY+TF+Cornerstone+The+Bridge+Wavecrest+Rentals+Your+Neighborhood+Housing&rlz=1C1GCEA_enUS1173US1173&sourceid=chrome&ie=UTF-8",
     "https://cgmrcompliance.com/housing-opportunities-1",
-    "https://city5.nyc/",
+    "https://city5.nyc/",  # currently often returns 502 – may or may not be useful
     "https://www.clintonmanagement.com/availabilities/affordable/",
     "https://fifthave.org/re-rental-availabilities/",
-    "https://iaffordny.com/re-rentals",
     "https://ihrerentals.com/",
     "https://ibis.powerappsportals.com/",
     "https://kgupright.com/",
     "https://www.langsampropertyservices.com/affordable-rental-opportunities",
-    "https://mgnyconsulting.com/listings/",
     "https://www.mickigarciarealty.com/",
     "https://www.prontohousingrentals.com/",
     "https://sbmgmt.sitemanager.rentmanager.com/RECLAIMHDFC.aspx",
@@ -40,7 +36,6 @@ URLS = [
     "https://wavecrestrentals.com/section.php?id=1",
     "https://yourneighborhoodhousing.com/",
 ]
-
 
 HASH_FILE = "hashes.json"
 
