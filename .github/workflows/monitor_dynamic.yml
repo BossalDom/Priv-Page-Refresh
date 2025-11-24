@@ -1,0 +1,46 @@
+name: Dynamic website monitor
+
+on:
+  schedule:
+    # Every 10 minutes between 12:00 and 23:59 UTC (7 to 18 Eastern)
+    - cron: "*/10 12-23 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-dynamic-sites:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright requests
+          python -m playwright install --with-deps chromium
+
+      - name: Run dynamic monitor script
+        env:
+          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
+        run: python monitor_dynamic.py
+
+      - name: Commit updated dynamic hashes
+        run: |
+          if [[ -n "$(git status --porcelain dynamic_hashes.json)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add dynamic_hashes.json
+            git commit -m "Update dynamic hashes [skip ci]"
+            git push
+          else
+            echo "No dynamic changes to commit"
+          fi
