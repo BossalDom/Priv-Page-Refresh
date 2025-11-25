@@ -1,11 +1,12 @@
-import requests
-from bs4 import BeautifulSoup
 import hashlib
 import json
 import os
-import difflib
 import re
 from pathlib import Path
+
+import requests
+from bs4 import BeautifulSoup
+import difflib
 
 # --------------- CONFIGURATION ---------------
 
@@ -38,13 +39,17 @@ URLS = [
     "https://yourneighborhoodhousing.com/",
 ]
 
+HEADERS = {
+    "User-Agent": "PrivPageRefresh/1.0 (+https://github.com/BossalDom/Priv-Page-Refresh)"
+}
+
 HASH_FILE = Path("hashes.json")
 TEXT_FILE = Path("page_texts.json")
 
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL")
 
-# --------------- STATE HELPERS ---------------------
 
+# --------------- STATE HELPERS ---------------
 
 def load_json(path: Path) -> dict:
     if path.exists():
@@ -64,44 +69,133 @@ def save_json(path: Path, data: dict) -> None:
         print(f"[WARN] Could not write {path}: {e}")
 
 
-# --------------- TEXT NORMALIZATION / DIFF ---------
+# --------------- CONTENT FILTERS ---------------
 
-
-def normalize_text(text: str) -> str:
-    """Collapse whitespace so layout-only changes are ignored."""
+def normalize_whitespace(text: str) -> str:
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
+def filter_resideny_open_market(text: str) -> str:
+    """
+    Reside New York open market page.
+    Ignore everything from 'Featured Properties' onward
+    so the sidebar does not trigger alerts.
+    """
+    marker = "Featured Properties"
+    idx = text.find(marker)
+    if idx != -1:
+        text = text[:idx]
+    return text
+
+
+def filter_ahg(text: str) -> str:
+    """
+    Affordable Housing Group page.
+    Keep content starting at the main opportunity section.
+    This strips the header with the date etc.
+    """
+    marker = "LOW INCOME HOUSING OPPORTUNITIES"
+    idx = text.find(marker)
+    if idx != -1:
+        text = text[idx:]
+    return text
+
+
+CONTENT_FILTERS = {
+    "https://residenewyork.com/property-status/open-market/": filter_resideny_open_market,
+    "https://ahgleasing.com/": filter_ahg,
+}
+
+
+LISTING_LINE_PATTERNS = [
+    r"\bApartment\b",
+    r"\bApt\b",
+    r"\bUnit\b",
+    r"\bUnits\b",
+    r"\bRent\b",
+    r"Per Month",
+    r"\bBedroom\b",
+    r"\bBedrooms\b",
+    r"\bHousehold\b",
+    r"\bResults\b",
+    r"\bBR\b",
+    r"\$[0-9]",      # any rent-like string
+]
+
+LISTING_LINE_REGEXES = [re.compile(p, re.IGNORECASE) for p in LISTING_LINE_PATTERNS]
+
+
+def keep_listing_lines_only(text: str) -> str:
+    """
+    From the full page text, keep only lines that look like actual listing content:
+    addresses, units, rents, household info, etc.
+    """
+    lines_in = text.splitlines()
+    lines_out: list[str] = []
+
+    for line in lines_in:
+        line = line.strip()
+        if not line:
+            continue
+        if any(rx.search(line) for rx in LISTING_LINE_REGEXES):
+            lines_out.append(line)
+
+    if not lines_out:
+        return text
+
+    return "\n".join(lines_out)
+
+
+def apply_content_filters(url: str, text: str) -> str:
+    """
+    1. Apply any site-specific filter.
+    2. Apply generic listing-line filter so we ignore nav, blog, footer, etc.
+    """
+    site_filter = CONTENT_FILTERS.get(url)
+    if site_filter is not None:
+        text = site_filter(text)
+
+    text = keep_listing_lines_only(text)
+    return text
+
+
+# --------------- FETCH AND DIFF ---------------
+
 def fetch_page_text(url: str) -> str | None:
     try:
-        headers = {"User-Agent": "PersonalMonitor/1.0 (+github actions)"}
-        resp = requests.get(url, headers=headers, timeout=20)
+        resp = requests.get(url, headers=HEADERS, timeout=30)
         resp.raise_for_status()
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        raw = soup.get_text(separator=" ", strip=True)
-        return normalize_text(raw)
-
     except Exception as e:
         print(f"[ERROR] Fetching {url}: {e}")
         return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    text = soup.get_text(separator="\n")
+
+    # Clean up blank lines
+    text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+
+    # Apply filters so we only keep the bits that matter
+    text = apply_content_filters(url, text)
+
+    # Normalize whitespace so tiny layout changes do not flip hashes
+    text = normalize_whitespace(text)
+
+    return text
 
 
 def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def summarize_diff(
-    old_text: str,
-    new_text: str,
-    max_snippets: int = 3,
-    context_chars: int = 80,
-    max_chars: int = 800,
-) -> str:
+def summarize_diff(old_text: str, new_text: str,
+                   max_snippets: int = 3,
+                   context_chars: int = 80,
+                   max_chars: int = 800) -> str | None:
     """
-    Show a few short snippets from new_text where changes occurred.
-    Changed portions are wrapped in [[double brackets]].
+    Produce a compact summary by highlighting new segments in the new text.
+    Only shows the "after" state, but focuses on inserted or changed chunks.
     """
     sm = difflib.SequenceMatcher(None, old_text, new_text)
     snippets: list[str] = []
@@ -110,12 +204,12 @@ def summarize_diff(
         if tag == "equal":
             continue
 
-        new_segment = new_text[j1:j2].strip()
-        if not new_segment:
+        new_seg = new_text[j1:j2].strip()
+        if not new_seg:
             continue
 
-        # Ignore extremely tiny changes that are just whitespace/punctuation
-        if len(new_segment) <= 1 and (i2 - i1) <= 1:
+        # ignore trivial changes
+        if len(new_seg) < 3:
             continue
 
         start = max(0, j1 - context_chars)
@@ -132,29 +226,26 @@ def summarize_diff(
             break
 
     if not snippets:
-        return "(Content changed but differences are too small or layout-only)"
+        return None
 
     summary = "\n---\n".join(snippets)
-
     if len(summary) > max_chars:
         summary = summary[:max_chars] + "\n[diff truncated]"
-
     return summary
 
 
-# --------------- NOTIFICATIONS ---------------------
-
+# --------------- NOTIFICATIONS ---------------
 
 def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
-    if not NTFY_TOPIC_URL:
-        print("[WARN] NTFY_TOPIC_URL not set, skipping notification")
+    if not diff_summary:
+        print(f"[INFO] Change on {url} was too minor or filtered out. No alert sent.")
         return
 
-    if diff_summary:
-        body = f"{url}\n\nChanges:\n{diff_summary}"
-    else:
-        body = f"The website changed:\n{url}"
+    if not NTFY_TOPIC_URL:
+        print("[WARN] NTFY_TOPIC_URL not set. Skipping ntfy notification.")
+        return
 
+    body = f"{url}\n\nChanges:\n{diff_summary}"
     title = "Website updated"
 
     try:
@@ -162,7 +253,7 @@ def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
             NTFY_TOPIC_URL,
             data=body.encode("utf-8"),
             headers={"Title": title, "Priority": "4"},
-            timeout=10,
+            timeout=15,
         )
         if 200 <= resp.status_code < 300:
             print(f"[OK] Alert sent for {url}")
@@ -172,8 +263,7 @@ def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
         print(f"[ERROR] Sending ntfy alert: {e}")
 
 
-# --------------- MAIN LOOP ------------------------
-
+# --------------- MAIN LOOP ---------------
 
 def run_once() -> None:
     hash_state = load_json(HASH_FILE)
@@ -200,19 +290,20 @@ def run_once() -> None:
         if new_hash != old_hash:
             print(f"[CHANGE] Detected change on {url}")
             diff_summary = summarize_diff(old_text, new_text)
-            print("[DIFF]\n" + diff_summary)
+            if diff_summary:
+                print("[DIFF]\n" + diff_summary)
             send_ntfy_alert(url, diff_summary)
             hash_state[url] = new_hash
             text_state[url] = new_text
             changed_any = True
         else:
-            print(f"[NOCHANGE] No change on {url}")
+            print(f"[NOCHANGE] No relevant change on {url}")
 
     if changed_any:
         save_json(HASH_FILE, hash_state)
         save_json(TEXT_FILE, text_state)
     else:
-        print("[INFO] No changes to save")
+        print("[INFO] No changes to save.")
 
 
 if __name__ == "__main__":
