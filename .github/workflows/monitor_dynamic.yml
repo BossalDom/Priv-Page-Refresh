@@ -1,10 +1,13 @@
 name: Dynamic website monitor
 
 on:
+  # GitHub cron - best effort, UTC time
   schedule:
-    # Every 5 minutes between 12:00 and 23:59 UTC (7:00–18:59 Eastern)
+    # Every 5 minutes between 12:00 and 23:59 UTC (7:00–18:59 New York)
     - cron: "*/5 12-23 * * *"
   workflow_dispatch:
+  repository_dispatch:
+    types: [check-dynamic-sites]
 
 permissions:
   contents: write
@@ -35,13 +38,26 @@ jobs:
 
       - name: Commit updated dynamic state
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
           if [[ -n "$(git status --porcelain dynamic_hashes.json dynamic_texts.json)" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
             git pull --rebase origin main || true
             git add dynamic_hashes.json dynamic_texts.json
             git commit -m "Update dynamic monitor state [skip ci]" || echo "Nothing to commit"
-            git push origin HEAD:main || echo "Push failed, will try again next run"
-          else
-            echo "No dynamic changes to commit"
-          fi
+
+            if [[ -n "$(git log -1 --pretty=%B | grep 'Update dynamic monitor state')" ]]; then
+              for i in 1 2 3; do
+                if git push origin HEAD:main; then
+                  echo "Dynamic state committed successfully"
+                  exit 0
+                fi
+                echo "Dynamic push failed, retry $i/3..."
+                sleep 2
+                git pull --rebase origin main || true
+              done
+
+              echo "ERROR: Failed to push dynamic state after 3 attempts"
+              exit 1
+            else
+              echo "Nothing new to push for dynamic state"
