@@ -2,7 +2,8 @@ name: Website monitor
 
 on:
   schedule:
-    - cron: "*/5 * * * *"    # Every 5 minutes (UTC)
+    # Every 5 minutes between 12:00 and 23:59 UTC (7:00–18:59 Eastern)
+    - cron: "*/5 12-23 * * *"
   workflow_dispatch:
 
 permissions:
@@ -24,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 playwright
+          pip install requests beautifulsoup4
 
       - name: Run monitor script
         env:
