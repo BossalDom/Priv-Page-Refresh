@@ -136,9 +136,19 @@ def fetch_rendered_text(url: str) -> str:
         context = browser.new_context(user_agent=HEADERS["User-Agent"])
         page = context.new_page()
         page.goto(url, wait_until="networkidle", timeout=45000)
-        # small extra wait in case of delayed content
+
+        # Extra wait for lazy loaded content
+        try:
+            page.wait_for_selector("body", timeout=5000)
+        except Exception:
+            # If this fails, we already waited on networkidle, so continue
+            pass
+
         page.wait_for_timeout(3000)
+
         html = page.content()
+        debug_print(f"[dynamic] Raw HTML length for {url}: {len(html)} chars")
+
         browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
