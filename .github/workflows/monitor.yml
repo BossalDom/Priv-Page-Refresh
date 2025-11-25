@@ -2,9 +2,9 @@ name: Website monitor
 
 on:
   schedule:
-    # Every 5 minutes between 12:00 and 23:59 UTC (7–18 Eastern)
-    - cron: "*/5 12-23 * * *"
+    - cron: "*/5 * * * *"   # every 5 minutes, all day
   workflow_dispatch:
+
 
 permissions:
   contents: write
