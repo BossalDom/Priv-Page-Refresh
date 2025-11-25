@@ -15,6 +15,9 @@ DYNAMIC_URLS = [
     "https://afny.org/re-rentals",
     "https://iaffordny.com/re-rentals",
     "https://mgnyconsulting.com/listings/",
+    "https://city5.nyc/",
+    "https://ibis.powerappsportals.com/",
+    "https://east-village-homes-owner-llc.rentcafewebsite.com/",
 ]
 
 HEADERS = {
@@ -25,6 +28,13 @@ HASH_FILE = Path("dynamic_hashes.json")
 TEXT_FILE = Path("dynamic_texts.json")
 
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL")
+
+DEBUG = os.environ.get("DEBUG", "").lower() == "true"
+
+
+def debug_print(msg: str) -> None:
+    if DEBUG:
+        print(f"[DEBUG] {msg}")
 
 
 # --------------- STATE HELPERS ---------------
@@ -54,44 +64,64 @@ def normalize_whitespace(text: str) -> str:
     return text.strip()
 
 
-LISTING_LINE_PATTERNS = [
-    r"\bApartment\b",
-    r"\bApt\b",
-    r"\bUnit\b",
-    r"\bUnits\b",
-    r"\bRent\b",
-    r"Per Month",
-    r"\bBedroom\b",
-    r"\bBedrooms\b",
-    r"\bHousehold\b",
-    r"\bResults\b",
-    r"\bBR\b",
-    r"\$[0-9]",
+LISTING_KEYWORDS = [
+    r"\b(?:apartment|apt|unit|studio|bedroom|br)\b",
+    r"\b(?:rent|rental|lease|available|vacancy)\b",
+    r"\b(?:household|income|ami|annual)\b",
+    r"\$\d{1,3}(?:,\d{3})*",
+    r"\b\d+\s*(?:bed|br|bedroom)\b",
+    r"\b(?:one|two|three|1|2|3)[\s-]?bedroom\b",
+    r"\b(?:floor|bldg|building|address|location)\b",
+    r"\b(?:sq\.?\s*ft|square\s+feet)\b",
+    r"\b(?:apply|application|waitlist|lottery)\b",
 ]
 
-LISTING_LINE_REGEXES = [re.compile(p, re.IGNORECASE) for p in LISTING_LINE_PATTERNS]
+LISTING_REGEXES = [re.compile(p, re.IGNORECASE) for p in LISTING_KEYWORDS]
+
+IGNORE_PATTERNS = [
+    r"^(?:skip to|menu|search|login|sign in|subscribe|newsletter)",
+    r"^(?:facebook|twitter|instagram|linkedin|youtube)",
+    r"^(?:privacy policy|terms|copyright|cookies)",
+    r"^\s*[×✕✖]\s*$",
+    r"^(?:home|about|contact|careers|media|events)\s*$",
+]
+
+IGNORE_REGEXES = [re.compile(p, re.IGNORECASE) for p in IGNORE_PATTERNS]
 
 
-def keep_listing_lines_only(text: str) -> str:
-    lines_in = text.splitlines()
-    lines_out = []
+def extract_relevant_content(text: str) -> str:
+    lines = text.splitlines()
+    relevant_lines: list[str] = []
+    context_window: list[str] = []
 
-    for line in lines_in:
+    for line in lines:
         line = line.strip()
-        if not line:
+        if not line or len(line) < 3:
             continue
-        if any(rx.search(line) for rx in LISTING_LINE_REGEXES):
-            lines_out.append(line)
 
-    if not lines_out:
+        if any(rx.match(line) for rx in IGNORE_REGEXES):
+            continue
+
+        has_listing_content = any(rx.search(line) for rx in LISTING_REGEXES)
+
+        if has_listing_content:
+            if context_window:
+                relevant_lines.extend(context_window)
+            relevant_lines.append(line)
+            context_window = []
+        else:
+            context_window.append(line)
+            if len(context_window) > 2:
+                context_window.pop(0)
+
+    result = "\n".join(relevant_lines)
+    if len(result) < 100:
         return text
-
-    return "\n".join(lines_out)
+    return result
 
 
 def apply_content_filters(url: str, text: str) -> str:
-    # Dynamic pages are mostly listing focused already, but still filter
-    text = keep_listing_lines_only(text)
+    text = extract_relevant_content(text)
     return text
 
 
@@ -106,13 +136,21 @@ def fetch_rendered_text(url: str) -> str:
         context = browser.new_context(user_agent=HEADERS["User-Agent"])
         page = context.new_page()
         page.goto(url, wait_until="networkidle", timeout=45000)
+        # small extra wait in case of delayed content
+        page.wait_for_timeout(3000)
         html = page.content()
         browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
-    text = soup.get_text(separator="\n")
-    text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+    raw_text = soup.get_text(separator="\n")
+    debug_print(f"[dynamic] Raw text length for {url}: {len(raw_text)} chars")
+
+    text = "\n".join(line.strip() for line in raw_text.splitlines() if line.strip())
     text = apply_content_filters(url, text)
+
+    debug_print(f"[dynamic] Filtered text length for {url}: {len(text)} chars")
+    debug_print(f"[dynamic] First 200 chars: {text[:200]}")
+
     text = normalize_whitespace(text)
     return text
 
@@ -121,42 +159,45 @@ def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def summarize_diff(old_text: str, new_text: str,
-                   max_snippets: int = 3,
-                   context_chars: int = 80,
-                   max_chars: int = 800) -> str | None:
+def summarize_diff(
+    old_text: str,
+    new_text: str,
+    max_snippets: int = 5,
+    context_chars: int = 120,
+    max_chars: int = 1200,
+) -> str | None:
     sm = difflib.SequenceMatcher(None, old_text, new_text)
-    snippets: list[str] = []
+    additions: list[str] = []
+    removals: list[str] = []
 
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
             continue
 
-        new_seg = new_text[j1:j2].strip()
-        if not new_seg:
-            continue
-        if len(new_seg) < 3:
-            continue
+        if tag in ("insert", "replace"):
+            new_seg = new_text[j1:j2].strip()
+            if new_seg and len(new_seg) >= 10:
+                start = max(0, j1 - context_chars)
+                end = min(len(new_text), j2 + context_chars)
+                snippet = new_text[start:end].strip()
+                additions.append(f"➕ {snippet}")
 
-        start = max(0, j1 - context_chars)
-        end = min(len(new_text), j2 + context_chars)
+        if tag in ("delete", "replace"):
+            old_seg = old_text[i1:i2].strip()
+            if old_seg and len(old_seg) >= 10:
+                removals.append(f"➖ {old_seg[:100]}")
 
-        before = new_text[start:j1]
-        changed = new_text[j1:j2]
-        after = new_text[j2:end]
-
-        snippet = (before + "[[" + changed + "]]" + after).strip()
-        snippets.append(snippet)
-
-        if len(snippets) >= max_snippets:
-            break
+    snippets: list[str] = []
+    snippets.extend(additions[:max_snippets])
+    if len(snippets) < max_snippets:
+        snippets.extend(removals[: max_snippets - len(snippets)])
 
     if not snippets:
         return None
 
-    summary = "\n---\n".join(snippets)
+    summary = "\n\n".join(snippets)
     if len(summary) > max_chars:
-        summary = summary[:max_chars] + "\n[diff truncated]"
+        summary = summary[:max_chars] + "\n\n[...truncated]"
     return summary
 
 
