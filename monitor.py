@@ -10,7 +10,6 @@ import difflib
 
 # --------------- CONFIGURATION ---------------
 
-# Static pages - dynamic ones (afny, iafford, mgny) are handled in monitor_dynamic.py
 URLS = [
     "https://www.nyc.gov/site/hpd/services-and-information/find-affordable-housing-re-rentals.page",
     "https://cgmrcompliance.com/housing-opportunities-1",
@@ -107,7 +106,6 @@ CONTENT_FILTERS = {
     "https://ahgleasing.com/": filter_ahg,
 }
 
-# Patterns that mark a line as “listing-like”
 LISTING_LINE_PATTERNS = [
     r"\bApartment\b",
     r"\bApt\b",
@@ -120,7 +118,7 @@ LISTING_LINE_PATTERNS = [
     r"\bHousehold\b",
     r"\bResults\b",
     r"\bBR\b",
-    r"\$[0-9]",      # any rent-like string
+    r"\$[0-9]",
 ]
 
 LISTING_LINE_REGEXES = [re.compile(p, re.IGNORECASE) for p in LISTING_LINE_PATTERNS]
@@ -128,11 +126,10 @@ LISTING_LINE_REGEXES = [re.compile(p, re.IGNORECASE) for p in LISTING_LINE_PATTE
 
 def keep_listing_lines_only(text: str) -> str:
     """
-    From the full page text, keep only lines that look like listing content:
-    addresses, units, rents, household info, result counts, etc.
+    From full page text, keep only lines that look like listing content.
     """
     lines_in = text.splitlines()
-    lines_out: list[str] = []
+    lines_out = []
 
     for line in lines_in:
         line = line.strip()
@@ -148,10 +145,6 @@ def keep_listing_lines_only(text: str) -> str:
 
 
 def apply_content_filters(url: str, text: str) -> str:
-    """
-    1. Apply any site specific filter.
-    2. Apply generic listing-line filter.
-    """
     site_filter = CONTENT_FILTERS.get(url)
     if site_filter is not None:
         text = site_filter(text)
@@ -173,13 +166,10 @@ def fetch_page_text(url: str) -> str | None:
     soup = BeautifulSoup(resp.text, "html.parser")
     text = soup.get_text(separator="\n")
 
-    # Collapse blank lines early
+    # Remove blank lines early
     text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
 
-    # Keep only the bits that matter
     text = apply_content_filters(url, text)
-
-    # Normalize whitespace so tiny layout changes do not flip hashes
     text = normalize_whitespace(text)
 
     return text
@@ -193,9 +183,6 @@ def summarize_diff(old_text: str, new_text: str,
                    max_snippets: int = 3,
                    context_chars: int = 80,
                    max_chars: int = 800) -> str | None:
-    """
-    Highlight changed segments in the new text with surrounding context.
-    """
     sm = difflib.SequenceMatcher(None, old_text, new_text)
     snippets: list[str] = []
 
@@ -206,7 +193,6 @@ def summarize_diff(old_text: str, new_text: str,
         new_seg = new_text[j1:j2].strip()
         if not new_seg:
             continue
-
         if len(new_seg) < 3:
             continue
 
