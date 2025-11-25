@@ -10,6 +10,7 @@ import difflib
 
 # --------------- CONFIGURATION ---------------
 
+# Static pages - dynamic ones (afny, iafford, mgny) are handled in monitor_dynamic.py
 URLS = [
     "https://www.nyc.gov/site/hpd/services-and-information/find-affordable-housing-re-rentals.page",
     "https://cgmrcompliance.com/housing-opportunities-1",
@@ -78,9 +79,8 @@ def normalize_whitespace(text: str) -> str:
 
 def filter_resideny_open_market(text: str) -> str:
     """
-    Reside New York open market page.
-    Ignore everything from 'Featured Properties' onward
-    so the sidebar does not trigger alerts.
+    For Reside New York Open Market:
+    cut the text at 'Featured Properties' so sidebar tiles do not matter.
     """
     marker = "Featured Properties"
     idx = text.find(marker)
@@ -91,9 +91,9 @@ def filter_resideny_open_market(text: str) -> str:
 
 def filter_ahg(text: str) -> str:
     """
-    Affordable Housing Group page.
-    Keep content starting at the main opportunity section.
-    This strips the header with the date etc.
+    For Affordable Housing Group:
+    keep content starting at 'LOW INCOME HOUSING OPPORTUNITIES'
+    so the dated intro at the top does not trigger alerts.
     """
     marker = "LOW INCOME HOUSING OPPORTUNITIES"
     idx = text.find(marker)
@@ -107,7 +107,7 @@ CONTENT_FILTERS = {
     "https://ahgleasing.com/": filter_ahg,
 }
 
-
+# Patterns that mark a line as “listing-like”
 LISTING_LINE_PATTERNS = [
     r"\bApartment\b",
     r"\bApt\b",
@@ -128,8 +128,8 @@ LISTING_LINE_REGEXES = [re.compile(p, re.IGNORECASE) for p in LISTING_LINE_PATTE
 
 def keep_listing_lines_only(text: str) -> str:
     """
-    From the full page text, keep only lines that look like actual listing content:
-    addresses, units, rents, household info, etc.
+    From the full page text, keep only lines that look like listing content:
+    addresses, units, rents, household info, result counts, etc.
     """
     lines_in = text.splitlines()
     lines_out: list[str] = []
@@ -149,8 +149,9 @@ def keep_listing_lines_only(text: str) -> str:
 
 def apply_content_filters(url: str, text: str) -> str:
     """
-    1. Apply any site-specific filter.
-    2. Apply generic listing-line filter so we ignore nav, blog, footer, etc.
+    1. Apply any site specific filter.
+    2. Apply generic listing-line filter so nav, blog, footer and sidebar
+       content do not influence the hash.
     """
     site_filter = CONTENT_FILTERS.get(url)
     if site_filter is not None:
@@ -173,10 +174,10 @@ def fetch_page_text(url: str) -> str | None:
     soup = BeautifulSoup(resp.text, "html.parser")
     text = soup.get_text(separator="\n")
 
-    # Clean up blank lines
+    # Collapse blank lines early
     text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
 
-    # Apply filters so we only keep the bits that matter
+    # Keep only the bits that matter
     text = apply_content_filters(url, text)
 
     # Normalize whitespace so tiny layout changes do not flip hashes
@@ -194,8 +195,7 @@ def summarize_diff(old_text: str, new_text: str,
                    context_chars: int = 80,
                    max_chars: int = 800) -> str | None:
     """
-    Produce a compact summary by highlighting new segments in the new text.
-    Only shows the "after" state, but focuses on inserted or changed chunks.
+    Highlight changed segments in the new text with surrounding context.
     """
     sm = difflib.SequenceMatcher(None, old_text, new_text)
     snippets: list[str] = []
@@ -208,7 +208,6 @@ def summarize_diff(old_text: str, new_text: str,
         if not new_seg:
             continue
 
-        # ignore trivial changes
         if len(new_seg) < 3:
             continue
 
