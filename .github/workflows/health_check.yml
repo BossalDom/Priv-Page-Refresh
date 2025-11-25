@@ -2,24 +2,27 @@ name: Health Check
 
 on:
   schedule:
-    - cron: "0 */6 * * *"    # Every 6 hours, on the hour
+    - cron: "0 */6 * * *"   # Every 6 hours
   workflow_dispatch:
 
 jobs:
   health:
     runs-on: ubuntu-latest
+
     steps:
       - name: Print heartbeat
-        run: echo "Monitor health check at $(date -u)"
+        run: echo "Health check at $(date -u)"
 
       - name: Send heartbeat notification
         env:
           NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
         run: |
           if [ -n "$NTFY_TOPIC_URL" ]; then
-            curl -H "Title: Monitor Heartbeat" \
-                 -H "Tags: white_check_mark" \
-                 -d "Monitor workflows are running (health_check)" \
-                 "$NTFY_TOPIC_URL"
+            curl -sS \
+              -H "Title: Monitor Heartbeat" \
+              -H "Tags: white_check_mark" \
+              -d "Monitor workflows are running normally at $(date -u)" \
+              "$NTFY_TOPIC_URL"
           else
-            echo "NTFY_TOPIC_URL not set, skipping heartbeat"
+            echo "NTFY_TOPIC_URL not set, skipping heartbeat notification"
+          fi
