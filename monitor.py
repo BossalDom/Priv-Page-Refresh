@@ -150,8 +150,7 @@ def keep_listing_lines_only(text: str) -> str:
 def apply_content_filters(url: str, text: str) -> str:
     """
     1. Apply any site specific filter.
-    2. Apply generic listing-line filter so nav, blog, footer and sidebar
-       content do not influence the hash.
+    2. Apply generic listing-line filter.
     """
     site_filter = CONTENT_FILTERS.get(url)
     if site_filter is not None:
@@ -241,25 +240,33 @@ def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
         return
 
     if not NTFY_TOPIC_URL:
-        print("[WARN] NTFY_TOPIC_URL not set. Skipping ntfy notification.")
-        return
+        print("[ERROR] NTFY_TOPIC_URL not set in environment. Set it as a GitHub Actions secret.")
+        print(f"[ALERT] Would have sent notification for {url}:\n{diff_summary}")
+        raise ValueError("NTFY_TOPIC_URL environment variable not configured")
 
     body = f"{url}\n\nChanges:\n{diff_summary}"
-    title = "Website updated"
+    title = "Housing site updated"
 
     try:
         resp = requests.post(
             NTFY_TOPIC_URL,
             data=body.encode("utf-8"),
-            headers={"Title": title, "Priority": "4"},
+            headers={
+                "Title": title,
+                "Priority": "4",
+                "Tags": "house,warning",
+                "Click": url,
+            },
             timeout=15,
         )
         if 200 <= resp.status_code < 300:
             print(f"[OK] Alert sent for {url}")
         else:
-            print(f"[WARN] ntfy returned {resp.status_code} for {url}")
+            print(f"[ERROR] ntfy returned {resp.status_code} for {url}")
+            raise RuntimeError(f"Notification failed: {resp.status_code}")
     except Exception as e:
         print(f"[ERROR] Sending ntfy alert: {e}")
+        raise
 
 
 # --------------- MAIN LOOP ---------------
