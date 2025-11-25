@@ -2,7 +2,8 @@ name: Dynamic website monitor
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # Every 5 minutes (UTC)
+    # Every 10 minutes between 12:00 and 23:59 UTC (7:00–18:59 Eastern)
+    - cron: "*/10 12-23 * * *"
   workflow_dispatch:
 
 permissions:
