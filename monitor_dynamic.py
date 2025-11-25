@@ -71,7 +71,6 @@ def filter_ahg(text: str) -> str:
 
 
 CONTENT_FILTERS = {
-    # not used for the three dynamic URLs right now, but available
     "https://residenewyork.com/property-status/open-market/": filter_resideny_open_market,
     "https://ahgleasing.com/": filter_ahg,
 }
@@ -194,71 +193,14 @@ def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
         return
 
     if not NTFY_TOPIC_URL:
-        print("[WARN] NTFY_TOPIC_URL not set. Skipping ntfy notification.")
-        return
+        print("[ERROR] NTFY_TOPIC_URL not set in environment. Set it as a GitHub Actions secret.")
+        print(f"[ALERT] Would have sent notification for {url}:\n{diff_summary}")
+        raise ValueError("NTFY_TOPIC_URL environment variable not configured")
 
     body = f"{url}\n\nChanges:\n{diff_summary}"
-    title = "Dynamic website updated"
+    title = "Dynamic housing site updated"
 
     try:
         resp = requests.post(
             NTFY_TOPIC_URL,
-            data=body.encode("utf-8"),
-            headers={"Title": title, "Priority": "4"},
-            timeout=20,
-        )
-        if 200 <= resp.status_code < 300:
-            print(f"[OK] Dynamic alert sent for {url}")
-        else:
-            print(f"[WARN] ntfy returned {resp.status_code} for dynamic url {url}")
-    except Exception as e:
-        print(f"[ERROR] Sending dynamic ntfy alert: {e}")
-
-
-# --------------- MAIN LOOP ---------------
-
-def run_dynamic_once() -> None:
-    hash_state = load_json(HASH_FILE)
-    text_state = load_json(TEXT_FILE)
-    changed_any = False
-
-    for url in DYNAMIC_URLS:
-        print(f"[INFO] Checking dynamic {url}")
-        try:
-            new_text = fetch_rendered_text(url)
-        except Exception as e:
-            print(f"[ERROR] Rendering {url}: {e}")
-            continue
-
-        new_hash = hash_text(new_text)
-        old_hash = hash_state.get(url)
-        old_text = text_state.get(url)
-
-        if old_hash is None or old_text is None:
-            print(f"[INIT] Recording initial dynamic state for {url}")
-            hash_state[url] = new_hash
-            text_state[url] = new_text
-            changed_any = True
-            continue
-
-        if new_hash != old_hash:
-            print(f"[CHANGE] Detected dynamic change on {url}")
-            diff_summary = summarize_diff(old_text, new_text)
-            if diff_summary:
-                print("[DIFF]\n" + diff_summary)
-            send_ntfy_alert(url, diff_summary)
-            hash_state[url] = new_hash
-            text_state[url] = new_text
-            changed_any = True
-        else:
-            print(f"[NOCHANGE] No relevant dynamic change on {url}")
-
-    if changed_any:
-        save_json(HASH_FILE, hash_state)
-        save_json(TEXT_FILE, text_state)
-    else:
-        print("[INFO] No dynamic changes to save.")
-
-
-if __name__ == "__main__":
-    run_dynamic_once()
+            data=body.encode("utf-
