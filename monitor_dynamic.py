@@ -1,11 +1,13 @@
-from playwright.sync_api import sync_playwright
 import hashlib
 import json
 import os
-import difflib
 import re
 from pathlib import Path
+
 import requests
+from bs4 import BeautifulSoup
+import difflib
+from playwright.sync_api import sync_playwright
 
 # --------------- CONFIGURATION ---------------
 
@@ -15,13 +17,17 @@ DYNAMIC_URLS = [
     "https://mgnyconsulting.com/listings/",
 ]
 
+HEADERS = {
+    "User-Agent": "PrivPageRefreshDynamic/1.0 (+https://github.com/BossalDom/Priv-Page-Refresh)"
+}
+
 HASH_FILE = Path("dynamic_hashes.json")
 TEXT_FILE = Path("dynamic_texts.json")
 
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL")
 
-# --------------- STATE HELPERS ---------------------
 
+# --------------- STATE HELPERS ---------------
 
 def load_json(path: Path) -> dict:
     if path.exists():
@@ -41,38 +47,110 @@ def save_json(path: Path, data: dict) -> None:
         print(f"[WARN] Could not write {path}: {e}")
 
 
-# --------------- TEXT NORMALIZATION / DIFF ---------
+# --------------- CONTENT FILTERS (same idea) ---------------
 
-
-def normalize_text(text: str) -> str:
+def normalize_whitespace(text: str) -> str:
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
-def get_rendered_text(url: str) -> str:
+def filter_resideny_open_market(text: str) -> str:
+    marker = "Featured Properties"
+    idx = text.find(marker)
+    if idx != -1:
+        text = text[:idx]
+    return text
+
+
+def filter_ahg(text: str) -> str:
+    marker = "LOW INCOME HOUSING OPPORTUNITIES"
+    idx = text.find(marker)
+    if idx != -1:
+        text = text[idx:]
+    return text
+
+
+CONTENT_FILTERS = {
+    # Not used yet for the dynamic URLs list, but available if you add more
+    "https://residenewyork.com/property-status/open-market/": filter_resideny_open_market,
+    "https://ahgleasing.com/": filter_ahg,
+}
+
+LISTING_LINE_PATTERNS = [
+    r"\bApartment\b",
+    r"\bApt\b",
+    r"\bUnit\b",
+    r"\bUnits\b",
+    r"\bRent\b",
+    r"Per Month",
+    r"\bBedroom\b",
+    r"\bBedrooms\b",
+    r"\bHousehold\b",
+    r"\bResults\b",
+    r"\bBR\b",
+    r"\$[0-9]",
+]
+
+LISTING_LINE_REGEXES = [re.compile(p, re.IGNORECASE) for p in LISTING_LINE_PATTERNS]
+
+
+def keep_listing_lines_only(text: str) -> str:
+    lines_in = text.splitlines()
+    lines_out: list[str] = []
+
+    for line in lines_in:
+        line = line.strip()
+        if not line:
+            continue
+        if any(rx.search(line) for rx in LISTING_LINE_REGEXES):
+            lines_out.append(line)
+
+    if not lines_out:
+        return text
+
+    return "\n".join(lines_out)
+
+
+def apply_content_filters(url: str, text: str) -> str:
+    site_filter = CONTENT_FILTERS.get(url)
+    if site_filter is not None:
+        text = site_filter(text)
+
+    text = keep_listing_lines_only(text)
+    return text
+
+
+# --------------- FETCH AND DIFF ---------------
+
+def fetch_rendered_text(url: str) -> str:
     """
-    Use Playwright to load the page with JavaScript executed, then return normalized body text.
+    Use Playwright to load the page with JavaScript executed, then return
+    filtered, normalized text.
     """
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page(user_agent="PersonalDynamicMonitor/1.0")
+        context = browser.new_context(user_agent=HEADERS["User-Agent"])
+        page = context.new_page()
         page.goto(url, wait_until="networkidle", timeout=45000)
-        raw = page.inner_text("body")
+        html = page.content()
         browser.close()
-        return normalize_text(raw)
+
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text(separator="\n")
+    text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+    text = apply_content_filters(url, text)
+    text = normalize_whitespace(text)
+    return text
 
 
 def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def summarize_diff(
-    old_text: str,
-    new_text: str,
-    max_snippets: int = 3,
-    context_chars: int = 80,
-    max_chars: int = 800,
-) -> str:
+def summarize_diff(old_text: str, new_text: str,
+                   max_snippets: int = 3,
+                   context_chars: int = 80,
+                   max_chars: int = 800) -> str | None:
     sm = difflib.SequenceMatcher(None, old_text, new_text)
     snippets: list[str] = []
 
@@ -80,11 +158,10 @@ def summarize_diff(
         if tag == "equal":
             continue
 
-        new_segment = new_text[j1:j2].strip()
-        if not new_segment:
+        new_seg = new_text[j1:j2].strip()
+        if not new_seg:
             continue
-
-        if len(new_segment) <= 1 and (i2 - i1) <= 1:
+        if len(new_seg) < 3:
             continue
 
         start = max(0, j1 - context_chars)
@@ -101,29 +178,26 @@ def summarize_diff(
             break
 
     if not snippets:
-        return "(Content changed but differences are too small or layout-only)"
+        return None
 
     summary = "\n---\n".join(snippets)
-
     if len(summary) > max_chars:
         summary = summary[:max_chars] + "\n[diff truncated]"
-
     return summary
 
 
-# --------------- NOTIFICATIONS ---------------------
-
+# --------------- NOTIFICATIONS ---------------
 
 def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
-    if not NTFY_TOPIC_URL:
-        print("[WARN] NTFY_TOPIC_URL not set, skipping notification")
+    if not diff_summary:
+        print(f"[INFO] Dynamic change on {url} was too minor or filtered out. No alert sent.")
         return
 
-    if diff_summary:
-        body = f"{url}\n\nChanges:\n{diff_summary}"
-    else:
-        body = f"The dynamic website changed:\n{url}"
+    if not NTFY_TOPIC_URL:
+        print("[WARN] NTFY_TOPIC_URL not set. Skipping ntfy notification.")
+        return
 
+    body = f"{url}\n\nChanges:\n{diff_summary}"
     title = "Dynamic website updated"
 
     try:
@@ -131,18 +205,17 @@ def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
             NTFY_TOPIC_URL,
             data=body.encode("utf-8"),
             headers={"Title": title, "Priority": "4"},
-            timeout=15,
+            timeout=20,
         )
         if 200 <= resp.status_code < 300:
-            print(f"[OK] Alert sent for {url}")
+            print(f"[OK] Dynamic alert sent for {url}")
         else:
-            print(f"[WARN] ntfy returned {resp.status_code} for {url}")
+            print(f"[WARN] ntfy returned {resp.status_code} for dynamic url {url}")
     except Exception as e:
-        print(f"[ERROR] Sending ntfy alert: {e}")
+        print(f"[ERROR] Sending dynamic ntfy alert: {e}")
 
 
-# --------------- MAIN LOOP ------------------------
-
+# --------------- MAIN LOOP ---------------
 
 def run_dynamic_once() -> None:
     hash_state = load_json(HASH_FILE)
@@ -152,7 +225,7 @@ def run_dynamic_once() -> None:
     for url in DYNAMIC_URLS:
         print(f"[INFO] Checking dynamic {url}")
         try:
-            new_text = get_rendered_text(url)
+            new_text = fetch_rendered_text(url)
         except Exception as e:
             print(f"[ERROR] Rendering {url}: {e}")
             continue
@@ -171,19 +244,20 @@ def run_dynamic_once() -> None:
         if new_hash != old_hash:
             print(f"[CHANGE] Detected dynamic change on {url}")
             diff_summary = summarize_diff(old_text, new_text)
-            print("[DIFF]\n" + diff_summary)
+            if diff_summary:
+                print("[DIFF]\n" + diff_summary)
             send_ntfy_alert(url, diff_summary)
             hash_state[url] = new_hash
             text_state[url] = new_text
             changed_any = True
         else:
-            print(f"[NOCHANGE] No dynamic change on {url}")
+            print(f"[NOCHANGE] No relevant dynamic change on {url}")
 
     if changed_any:
         save_json(HASH_FILE, hash_state)
         save_json(TEXT_FILE, text_state)
     else:
-        print("[INFO] No dynamic changes to save")
+        print("[INFO] No dynamic changes to save.")
 
 
 if __name__ == "__main__":
