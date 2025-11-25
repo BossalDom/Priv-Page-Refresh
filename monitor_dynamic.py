@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import difflib
+import re
 from pathlib import Path
 import requests
 
@@ -22,7 +23,7 @@ NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL")
 # --------------- STATE HELPERS ---------------------
 
 
-def load_json(path: Path):
+def load_json(path: Path) -> dict:
     if path.exists():
         try:
             with path.open("r", encoding="utf-8") as f:
@@ -32,7 +33,7 @@ def load_json(path: Path):
     return {}
 
 
-def save_json(path: Path, data: dict):
+def save_json(path: Path, data: dict) -> None:
     try:
         with path.open("w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -40,61 +41,80 @@ def save_json(path: Path, data: dict):
         print(f"[WARN] Could not write {path}: {e}")
 
 
-# --------------- PAGE FETCH / DIFF -----------------
+# --------------- TEXT NORMALIZATION / DIFF ---------
 
 
-def get_rendered_text(url: str) -> str | None:
-    """Load page with JavaScript executed, then return body text."""
+def normalize_text(text: str) -> str:
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def get_rendered_text(url: str) -> str:
+    """
+    Use Playwright to load the page with JavaScript executed, then return normalized body text.
+    """
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(user_agent="PersonalDynamicMonitor/1.0")
         page.goto(url, wait_until="networkidle", timeout=45000)
-        text = page.inner_text("body")
+        raw = page.inner_text("body")
         browser.close()
-        return text
+        return normalize_text(raw)
 
 
 def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def summarize_diff(old_text: str, new_text: str,
-                   max_lines: int = 20,
-                   max_chars: int = 800) -> str:
-    """
-    Return a short summary of what changed between old_text and new_text.
-    Shows only added lines, truncated.
-    """
-    old_lines = old_text.splitlines()
-    new_lines = new_text.splitlines()
+def summarize_diff(
+    old_text: str,
+    new_text: str,
+    max_snippets: int = 3,
+    context_chars: int = 80,
+    max_chars: int = 800,
+) -> str:
+    sm = difflib.SequenceMatcher(None, old_text, new_text)
+    snippets: list[str] = []
 
-    diff = difflib.unified_diff(
-        old_lines, new_lines,
-        fromfile="old", tofile="new",
-        lineterm=""
-    )
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            continue
 
-    added = []
-    for line in diff:
-        # Keep only newly added lines, ignore diff headers
-        if line.startswith("+") and not line.startswith("+++"):
-            added.append(line[1:])
+        new_segment = new_text[j1:j2].strip()
+        if not new_segment:
+            continue
 
-    if not added:
-        return "(Content changed but diff is empty or too complex)"
+        if len(new_segment) <= 1 and (i2 - i1) <= 1:
+            continue
 
-    snippet = "\n".join(added[:max_lines])
+        start = max(0, j1 - context_chars)
+        end = min(len(new_text), j2 + context_chars)
 
-    if len(snippet) > max_chars:
-        snippet = snippet[:max_chars] + "\n[diff truncated]"
+        before = new_text[start:j1]
+        changed = new_text[j1:j2]
+        after = new_text[j2:end]
 
-    return snippet
+        snippet = (before + "[[" + changed + "]]" + after).strip()
+        snippets.append(snippet)
+
+        if len(snippets) >= max_snippets:
+            break
+
+    if not snippets:
+        return "(Content changed but differences are too small or layout-only)"
+
+    summary = "\n---\n".join(snippets)
+
+    if len(summary) > max_chars:
+        summary = summary[:max_chars] + "\n[diff truncated]"
+
+    return summary
 
 
 # --------------- NOTIFICATIONS ---------------------
 
 
-def send_ntfy_alert(url: str, diff_summary: str | None):
+def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
     if not NTFY_TOPIC_URL:
         print("[WARN] NTFY_TOPIC_URL not set, skipping notification")
         return
@@ -124,7 +144,7 @@ def send_ntfy_alert(url: str, diff_summary: str | None):
 # --------------- MAIN LOOP ------------------------
 
 
-def run_dynamic_once():
+def run_dynamic_once() -> None:
     hash_state = load_json(HASH_FILE)
     text_state = load_json(TEXT_FILE)
     changed_any = False
@@ -137,14 +157,10 @@ def run_dynamic_once():
             print(f"[ERROR] Rendering {url}: {e}")
             continue
 
-        if new_text is None:
-            continue
-
         new_hash = hash_text(new_text)
         old_hash = hash_state.get(url)
         old_text = text_state.get(url)
 
-        # First time seeing this URL or no stored text yet
         if old_hash is None or old_text is None:
             print(f"[INIT] Recording initial dynamic state for {url}")
             hash_state[url] = new_hash
