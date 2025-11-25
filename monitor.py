@@ -46,7 +46,7 @@ TEXT_FILE = Path("page_texts.json")
 
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL")
 
-# Debug flag – set DEBUG: "true" in the workflow env if you want extra logs
+# Debug flag - set DEBUG: "true" in the workflow env if you want extra logs
 DEBUG = os.environ.get("DEBUG", "").lower() == "true"
 
 
@@ -256,7 +256,7 @@ def summarize_diff(
 ) -> str | None:
     """
     Improved diff that highlights additions and removals.
-    We care most about additions (new listings).
+    Focus on additions that likely correspond to new listings.
     """
     sm = difflib.SequenceMatcher(None, old_text, new_text)
     additions: list[str] = []
@@ -310,15 +310,15 @@ def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
 
     try:
         resp = requests.post(
-        NTFY_TOPIC_URL,
-        data=body.encode("utf-8"),
-        headers={
-            "Title": title,
-            "Priority": "4",
-            "Tags": "house,warning",
-            "Click": url,
-        },
-        timeout=15,
+            NTFY_TOPIC_URL,
+            data=body.encode("utf-8"),
+            headers={
+                "Title": title,
+                "Priority": "4",
+                "Tags": "house,warning",
+                "Click": url,
+            },
+            timeout=15,
         )
         if 200 <= resp.status_code < 300:
             print(f"[OK] Alert sent for {url}")
