@@ -1,10 +1,15 @@
 name: Website monitor
 
 on:
+  # GitHub cron - best effort, UTC time
   schedule:
-    # Every 5 minutes between 12:00 and 23:59 UTC (7:00–18:59 Eastern)
+    # Every 5 minutes between 12:00 and 23:59 UTC (7:00–18:59 New York)
     - cron: "*/5 12-23 * * *"
+  # Manual trigger from the Actions tab
   workflow_dispatch:
+  # External trigger via repository_dispatch API call
+  repository_dispatch:
+    types: [check-sites]
 
 permissions:
   contents: write
@@ -34,13 +39,5 @@ jobs:
 
       - name: Commit updated state
         run: |
-          if [[ -n "$(git status --porcelain hashes.json page_texts.json)" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git pull --rebase origin main || true
-            git add hashes.json page_texts.json
-            git commit -m "Update monitor state [skip ci]" || echo "Nothing to commit"
-            git push origin HEAD:main || echo "Push failed, will try again next run"
-          else
-            echo "No changes to commit"
-          fi
+          git config user.name "github-actions[bot]"
+          git
