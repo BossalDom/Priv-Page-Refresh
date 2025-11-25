@@ -47,7 +47,7 @@ def save_json(path: Path, data: dict) -> None:
         print(f"[WARN] Could not write {path}: {e}")
 
 
-# --------------- CONTENT FILTERS (same idea) ---------------
+# --------------- CONTENT FILTERS ---------------
 
 def normalize_whitespace(text: str) -> str:
     text = re.sub(r"\s+", " ", text)
@@ -71,7 +71,7 @@ def filter_ahg(text: str) -> str:
 
 
 CONTENT_FILTERS = {
-    # Not used yet for the dynamic URLs list, but available if you add more
+    # not used for the three dynamic URLs right now, but available
     "https://residenewyork.com/property-status/open-market/": filter_resideny_open_market,
     "https://ahgleasing.com/": filter_ahg,
 }
@@ -124,8 +124,8 @@ def apply_content_filters(url: str, text: str) -> str:
 
 def fetch_rendered_text(url: str) -> str:
     """
-    Use Playwright to load the page with JavaScript executed, then return
-    filtered, normalized text.
+    Use Playwright to load the page with JavaScript executed,
+    then return filtered, normalized text.
     """
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
