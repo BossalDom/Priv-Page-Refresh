@@ -54,27 +54,6 @@ def normalize_whitespace(text: str) -> str:
     return text.strip()
 
 
-def filter_resideny_open_market(text: str) -> str:
-    marker = "Featured Properties"
-    idx = text.find(marker)
-    if idx != -1:
-        text = text[:idx]
-    return text
-
-
-def filter_ahg(text: str) -> str:
-    marker = "LOW INCOME HOUSING OPPORTUNITIES"
-    idx = text.find(marker)
-    if idx != -1:
-        text = text[idx:]
-    return text
-
-
-CONTENT_FILTERS = {
-    "https://residenewyork.com/property-status/open-market/": filter_resideny_open_market,
-    "https://ahgleasing.com/": filter_ahg,
-}
-
 LISTING_LINE_PATTERNS = [
     r"\bApartment\b",
     r"\bApt\b",
@@ -95,7 +74,7 @@ LISTING_LINE_REGEXES = [re.compile(p, re.IGNORECASE) for p in LISTING_LINE_PATTE
 
 def keep_listing_lines_only(text: str) -> str:
     lines_in = text.splitlines()
-    lines_out: list[str] = []
+    lines_out = []
 
     for line in lines_in:
         line = line.strip()
@@ -111,10 +90,7 @@ def keep_listing_lines_only(text: str) -> str:
 
 
 def apply_content_filters(url: str, text: str) -> str:
-    site_filter = CONTENT_FILTERS.get(url)
-    if site_filter is not None:
-        text = site_filter(text)
-
+    # Dynamic pages are mostly listing focused already, but still filter
     text = keep_listing_lines_only(text)
     return text
 
@@ -123,8 +99,7 @@ def apply_content_filters(url: str, text: str) -> str:
 
 def fetch_rendered_text(url: str) -> str:
     """
-    Use Playwright to load the page with JavaScript executed,
-    then return filtered, normalized text.
+    Use Playwright to load the page with JavaScript executed.
     """
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -203,4 +178,69 @@ def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
     try:
         resp = requests.post(
             NTFY_TOPIC_URL,
-            data=body.encode("utf-
+            data=body.encode("utf-8"),
+            headers={
+                "Title": title,
+                "Priority": "4",
+                "Tags": "house,warning",
+                "Click": url,
+            },
+            timeout=20,
+        )
+        if 200 <= resp.status_code < 300:
+            print(f"[OK] Dynamic alert sent for {url}")
+        else:
+            print(f"[ERROR] ntfy returned {resp.status_code} for dynamic url {url}")
+            raise RuntimeError(f"Notification failed: {resp.status_code}")
+    except Exception as e:
+        print(f"[ERROR] Sending dynamic ntfy alert: {e}")
+        raise
+
+
+# --------------- MAIN LOOP ---------------
+
+def run_dynamic_once() -> None:
+    hash_state = load_json(HASH_FILE)
+    text_state = load_json(TEXT_FILE)
+    changed_any = False
+
+    for url in DYNAMIC_URLS:
+        print(f"[INFO] Checking dynamic {url}")
+        try:
+            new_text = fetch_rendered_text(url)
+        except Exception as e:
+            print(f"[ERROR] Rendering {url}: {e}")
+            continue
+
+        new_hash = hash_text(new_text)
+        old_hash = hash_state.get(url)
+        old_text = text_state.get(url)
+
+        if old_hash is None or old_text is None:
+            print(f"[INIT] Recording initial dynamic state for {url}")
+            hash_state[url] = new_hash
+            text_state[url] = new_text
+            changed_any = True
+            continue
+
+        if new_hash != old_hash:
+            print(f"[CHANGE] Detected dynamic change on {url}")
+            diff_summary = summarize_diff(old_text, new_text)
+            if diff_summary:
+                print("[DIFF]\n" + diff_summary)
+            send_ntfy_alert(url, diff_summary)
+            hash_state[url] = new_hash
+            text_state[url] = new_text
+            changed_any = True
+        else:
+            print(f"[NOCHANGE] No relevant dynamic change on {url}")
+
+    if changed_any:
+        save_json(HASH_FILE, hash_state)
+        save_json(TEXT_FILE, text_state)
+    else:
+        print("[INFO] No dynamic changes to save.")
+
+
+if __name__ == "__main__":
+    run_dynamic_once()
