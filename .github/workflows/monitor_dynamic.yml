@@ -2,7 +2,7 @@ name: Dynamic website monitor
 
 on:
   schedule:
-    - cron: "*/5 * * * *"    # Every 5 minutes, all day (UTC)
+    - cron: "*/5 * * * *"   # Every 5 minutes (UTC)
   workflow_dispatch:
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install playwright
+          pip install requests beautifulsoup4 playwright
           python -m playwright install --with-deps chromium
 
       - name: Run dynamic monitor script
