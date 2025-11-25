@@ -1,10 +1,9 @@
 name: Dynamic website monitor
 
 on:
-  # GitHub cron - best effort, UTC time
+  # Optional backup schedule in UTC
   schedule:
-    # Every 5 minutes between 12:00 and 23:59 UTC (7:00–18:59 New York)
-    - cron: "*/5 12-23 * * *"
+    - cron: "*/10 12-23 * * *"
   workflow_dispatch:
   repository_dispatch:
     types: [check-dynamic-sites]
@@ -61,3 +60,7 @@ jobs:
               exit 1
             else
               echo "Nothing new to push for dynamic state"
+            fi
+          else
+            echo "No dynamic changes to commit"
+          fi
