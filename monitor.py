@@ -1,16 +1,21 @@
-import hashlib
-import json
+#!/usr/bin/env python3
 import os
+import json
 import re
+import difflib
+import hashlib
 from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
-import difflib
 
-# --------------- CONFIGURATION ---------------
+# --------------------------------------------------
+# Configuration
+# --------------------------------------------------
 
-# Static pages only. JS heavy pages are handled in monitor_dynamic.py
+NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL", "")
+
+# Static or mostly static pages
 URLS = [
     "https://www.nyc.gov/site/hpd/services-and-information/find-affordable-housing-re-rentals.page",
     "https://cgmrcompliance.com/housing-opportunities-1",
@@ -19,6 +24,7 @@ URLS = [
     "https://ihrerentals.com/",
     "https://kgupright.com/",
     "https://www.langsampropertyservices.com/affordable-rental-opportunities",
+    "https://mgnyconsulting.com/listings/",
     "https://www.mickigarciarealty.com/",
     "https://www.prontohousingrentals.com/",
     "https://sbmgmt.sitemanager.rentmanager.com/RECLAIMHDFC.aspx",
@@ -37,16 +43,18 @@ URLS = [
     "https://yourneighborhoodhousing.com/",
 ]
 
+STATE_DIR = Path(".")
+HASH_FILE = STATE_DIR / "hashes.json"
+TEXT_FILE = STATE_DIR / "page_texts.json"
+
 HEADERS = {
-    "User-Agent": "PrivPageRefresh/1.0 (+https://github.com/BossalDom/Priv-Page-Refresh)"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
 }
 
-HASH_FILE = Path("hashes.json")
-TEXT_FILE = Path("page_texts.json")
-
-NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL")
-
-# Debug flag - set DEBUG: "true" in the workflow env if you want extra logs
 DEBUG = os.environ.get("DEBUG", "").lower() == "true"
 
 
@@ -55,44 +63,52 @@ def debug_print(msg: str) -> None:
         print(f"[DEBUG] {msg}")
 
 
-# --------------- STATE HELPERS ---------------
+# --------------------------------------------------
+# Helpers for JSON state
+# --------------------------------------------------
+
 
 def load_json(path: Path) -> dict:
-    if path.exists():
-        try:
-            with path.open("r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"[WARN] Could not read {path}: {e}")
-    return {}
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as exc:
+        print(f"[WARN] Could not read {path}: {exc}")
+        return {}
 
 
 def save_json(path: Path, data: dict) -> None:
     try:
         with path.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        print(f"[WARN] Could not write {path}: {e}")
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as exc:
+        print(f"[ERROR] Could not write {path}: {exc}")
 
 
-# --------------- CONTENT FILTERS ---------------
+def hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 
 def normalize_whitespace(text: str) -> str:
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
+# --------------------------------------------------
+# Content filters
+# --------------------------------------------------
+
 def filter_resideny_open_market(text: str) -> str:
-    """For Reside New York: drop sidebar Featured Properties."""
-    marker = "Featured Properties"
+    marker = "Open Market"
     idx = text.find(marker)
     if idx != -1:
-        text = text[:idx]
+        text = text[idx:]
     return text
 
 
 def filter_ahg(text: str) -> str:
-    """For Affordable Housing Group: skip dated intro at top."""
     marker = "LOW INCOME HOUSING OPPORTUNITIES"
     idx = text.find(marker)
     if idx != -1:
@@ -100,22 +116,7 @@ def filter_ahg(text: str) -> str:
     return text
 
 
-def filter_streeteasy(text: str) -> str:
-    """For StreetEasy: focus on building details, ignore search noise."""
-    start_marker = "Riverton Square"
-    end_marker = "Search homes nearby"
-    start_idx = text.find(start_marker)
-    end_idx = text.find(end_marker)
-    if start_idx != -1:
-        if end_idx != -1 and end_idx > start_idx:
-            text = text[start_idx:end_idx]
-        else:
-            text = text[start_idx:]
-    return text
-
-
 def filter_google_sites(text: str) -> str:
-    """For the HPD Google Sites page: trim header/nav."""
     marker = "HPD"
     idx = text.find(marker)
     if idx != -1:
@@ -123,83 +124,79 @@ def filter_google_sites(text: str) -> str:
     return text
 
 
+def filter_streeteasy(text: str) -> str:
+    start_marker = "Riverton Square"
+    end_marker = "Search homes nearby"
+
+    start_idx = text.find(start_marker)
+    end_idx = text.find(end_marker)
+
+    if start_idx != -1:
+        if end_idx != -1:
+            text = text[start_idx:end_idx]
+        else:
+            text = text[start_idx:]
+    return text
+
+
 CONTENT_FILTERS = {
     "https://residenewyork.com/property-status/open-market/": filter_resideny_open_market,
     "https://ahgleasing.com/": filter_ahg,
-    "https://streeteasy.com/building/riverton-square": filter_streeteasy,
     "https://sites.google.com/affordablelivingnyc.com/hpd/home": filter_google_sites,
+    "https://streeteasy.com/building/riverton-square": filter_streeteasy,
 }
 
-# Expanded patterns for better listing detection
 LISTING_KEYWORDS = [
-    # core listing terms
-    r"\b(?:apartment|apt|unit|studio|bedroom|br)\b",
-    r"\b(?:rent|rental|lease|available|vacancy)\b",
-    r"\b(?:household|income|ami|annual)\b",
-
-    # numeric indicators
-    r"\$\d{1,3}(?:,\d{3})*",          # currency amounts
-    r"\b\d+\s*(?:bed|br|bedroom)\b",  # 2 bed, 3 bedroom, etc
-    r"\b(?:one|two|three|1|2|3)[\s-]?bedroom\b",
-
-    # building/location identifiers
-    r"\b(?:floor|bldg|building|address|location)\b",
-    r"\b(?:sq\.?\s*ft|square\s+feet)\b",
-
-    # application terms
-    r"\b(?:apply|application|waitlist|lottery)\b",
+    r"\b(apartment|apt|unit|studio|bedroom|br)\b",
+    r"\b(rent|rental|lease|available|vacancy)\b",
+    r"\b(household|income|ami|annual)\b",
+    r"\$\d{3,}",                      # dollar amounts
+    r"\b\d+\s*(bed|br|bedroom)\b",
+    r"\b(one|two|three|1|2|3)[\s-]?bedroom\b",
+    r"\b(floor|bldg|building|address|location)\b",
+    r"\b(sq\.?\s*ft|square\s+feet)\b",
+    r"\b(apply|application|waitlist|lottery)\b",
 ]
 
 LISTING_REGEXES = [re.compile(p, re.IGNORECASE) for p in LISTING_KEYWORDS]
 
-# Things to ignore (nav, footer, socials, generic one word links)
 IGNORE_PATTERNS = [
-    r"^(?:skip to|menu|search|login|sign in|subscribe|newsletter)",
-    r"^(?:facebook|twitter|instagram|linkedin|youtube)",
-    r"^(?:privacy policy|terms|copyright|cookies)",
+    r"^(skip to|menu|search|login|sign in|subscribe|newsletter)\b",
+    r"^(facebook|twitter|instagram|linkedin|youtube)\b",
+    r"^(privacy policy|terms|copyright|cookies)\b",
     r"^\s*[×✕✖]\s*$",
-    r"^(?:home|about|contact|careers|media|events)\s*$",
+    r"^(home|about|contact|careers|media|events)\s*$",
 ]
 
 IGNORE_REGEXES = [re.compile(p, re.IGNORECASE) for p in IGNORE_PATTERNS]
 
 
 def extract_relevant_content(text: str) -> str:
-    """
-    Extract listing relevant content while keeping a bit of context
-    around those lines. Less aggressive than strict line filtering.
-    """
     lines = text.splitlines()
-    relevant_lines: list[str] = []
-    context_window: list[str] = []  # last 1-2 lines to give context
+    relevant = []
+    context_window: list[str] = []
 
     for line in lines:
         line = line.strip()
         if not line or len(line) < 3:
             continue
 
-        # skip obvious nav/footer junk
         if any(rx.match(line) for rx in IGNORE_REGEXES):
             continue
 
         has_listing_content = any(rx.search(line) for rx in LISTING_REGEXES)
 
         if has_listing_content:
-            # include recent context, then this line
-            if context_window:
-                relevant_lines.extend(context_window)
-            relevant_lines.append(line)
+            relevant.extend(context_window)
+            relevant.append(line)
             context_window = []
         else:
-            # keep as possible context (cap at 2 lines)
             context_window.append(line)
             if len(context_window) > 2:
                 context_window.pop(0)
 
-    result = "\n".join(relevant_lines)
+    result = "\n".join(relevant)
 
-    # If we got almost nothing, fall back to original filtered only by site rules
-    # to avoid missing sites with unusual structure.
     if len(result) < 100:
         return text
 
@@ -207,44 +204,40 @@ def extract_relevant_content(text: str) -> str:
 
 
 def apply_content_filters(url: str, text: str) -> str:
-    """Site specific filters then general listing extraction."""
     site_filter = CONTENT_FILTERS.get(url)
     if site_filter:
         text = site_filter(text)
-
     text = extract_relevant_content(text)
     return text
 
 
-# --------------- FETCH AND DIFF ---------------
+# --------------------------------------------------
+# Fetching and diffing
+# --------------------------------------------------
+
 
 def fetch_page_text(url: str) -> str | None:
     try:
         resp = requests.get(url, headers=HEADERS, timeout=30)
         resp.raise_for_status()
-    except Exception as e:
-        print(f"[ERROR] Fetching {url}: {e}")
+    except Exception as exc:
+        print(f"[ERROR] Fetching {url}: {exc}")
         return None
 
     soup = BeautifulSoup(resp.text, "html.parser")
     raw_text = soup.get_text(separator="\n")
 
-    debug_print(f"Raw text length for {url}: {len(raw_text)} chars")
+    debug_print(f"[static] Raw text length for {url}: {len(raw_text)}")
 
-    # basic cleanup of empty lines
-    text = "\n".join(line.strip() for line in raw_text.splitlines() if line.strip())
-
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    text = "\n".join(lines)
     text = apply_content_filters(url, text)
 
-    debug_print(f"Filtered text length for {url}: {len(text)} chars")
-    debug_print(f"First 200 chars: {text[:200]}")
+    debug_print(f"[static] Filtered text length for {url}: {len(text)}")
+    debug_print(f"[static] First 200 chars for {url}: {text[:200]}")
 
     text = normalize_whitespace(text)
     return text
-
-
-def hash_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def summarize_diff(
@@ -254,10 +247,6 @@ def summarize_diff(
     context_chars: int = 120,
     max_chars: int = 1200,
 ) -> str | None:
-    """
-    Improved diff that highlights additions and removals.
-    Focus on additions that likely correspond to new listings.
-    """
     sm = difflib.SequenceMatcher(None, old_text, new_text)
     additions: list[str] = []
     removals: list[str] = []
@@ -279,8 +268,7 @@ def summarize_diff(
             if old_seg and len(old_seg) >= 10:
                 removals.append(f"➖ {old_seg[:100]}")
 
-    snippets: list[str] = []
-    snippets.extend(additions[:max_snippets])
+    snippets: list[str] = additions[:max_snippets]
     if len(snippets) < max_snippets:
         snippets.extend(removals[: max_snippets - len(snippets)])
 
@@ -293,20 +281,18 @@ def summarize_diff(
     return summary
 
 
-# --------------- NOTIFICATIONS ---------------
-
 def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
     if not diff_summary:
-        print(f"[INFO] Change on {url} was too minor or filtered out. No alert sent.")
+        print(f"[INFO] Change on {url} was too minor or filtered out")
         return
 
     if not NTFY_TOPIC_URL:
-        print("[ERROR] NTFY_TOPIC_URL not set in environment. Set it as a GitHub Actions secret.")
-        print(f"[ALERT] Would have sent notification for {url}:\n{diff_summary}")
-        raise ValueError("NTFY_TOPIC_URL environment variable not configured")
+        print("[ERROR] NTFY_TOPIC_URL not set")
+        print(f"[ALERT] Would notify for {url}:\n{diff_summary}")
+        raise ValueError("NTFY_TOPIC_URL not configured")
 
     body = f"{url}\n\nChanges:\n{diff_summary}"
-    title = "Housing site updated"
+    title = "Housing website updated"
 
     try:
         resp = requests.post(
@@ -318,23 +304,27 @@ def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
                 "Tags": "house,warning",
                 "Click": url,
             },
-            timeout=15,
+            timeout=20,
         )
         if 200 <= resp.status_code < 300:
             print(f"[OK] Alert sent for {url}")
         else:
-            print(f"[ERROR] ntfy returned {resp.status_code} for {url}")
+            print(f"[ERROR] ntfy returned {resp.status_code}")
             raise RuntimeError(f"Notification failed: {resp.status_code}")
-    except Exception as e:
-        print(f"[ERROR] Sending ntfy alert: {e}")
+    except Exception as exc:
+        print(f"[ERROR] Sending alert: {exc}")
         raise
 
 
-# --------------- MAIN LOOP ---------------
+# --------------------------------------------------
+# Main loop
+# --------------------------------------------------
+
 
 def run_once() -> None:
-    hash_state = load_json(HASH_FILE)
-    text_state = load_json(TEXT_FILE)
+    hashes = load_json(HASH_FILE)
+    texts = load_json(TEXT_FILE)
+
     changed_any = False
 
     for url in URLS:
@@ -343,34 +333,37 @@ def run_once() -> None:
         if new_text is None:
             continue
 
-        new_hash = hash_text(new_text)
-        old_hash = hash_state.get(url)
-        old_text = text_state.get(url)
+        old_text = texts.get(url)
+        old_hash = hashes.get(url)
 
-        if old_hash is None or old_text is None:
-            print(f"[INIT] Recording initial state for {url}")
-            hash_state[url] = new_hash
-            text_state[url] = new_text
+        new_hash = hash_text(new_text)
+
+        if old_text is None or old_hash is None:
+            print(f"[INIT] Recording baseline for {url}")
+            texts[url] = new_text
+            hashes[url] = new_hash
             changed_any = True
             continue
 
-        if new_hash != old_hash:
-            print(f"[CHANGE] Detected change on {url}")
-            diff_summary = summarize_diff(old_text, new_text)
-            if diff_summary:
-                print("[DIFF]\n" + diff_summary)
+        if new_hash == old_hash:
+            print(f"[NOCHANGE] {url}")
+            continue
+
+        diff_summary = summarize_diff(old_text, new_text)
+        if diff_summary:
             send_ntfy_alert(url, diff_summary)
-            hash_state[url] = new_hash
-            text_state[url] = new_text
-            changed_any = True
         else:
-            print(f"[NOCHANGE] No relevant change on {url}")
+            print(f"[INFO] No significant diff for {url}")
+
+        texts[url] = new_text
+        hashes[url] = new_hash
+        changed_any = True
 
     if changed_any:
-        save_json(HASH_FILE, hash_state)
-        save_json(TEXT_FILE, text_state)
+        save_json(HASH_FILE, hashes)
+        save_json(TEXT_FILE, texts)
     else:
-        print("[INFO] No changes to save.")
+        print("[INFO] No changes to save")
 
 
 if __name__ == "__main__":
