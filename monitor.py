@@ -39,6 +39,7 @@ URLS = [
     "https://www.taxaceny.com/projects-8",
     "https://tfc.com/about/affordable-re-rentals",
     "https://www.thebridgeny.org/news-and-media",
+    "https://www.elhrerentals.com/",
     "https://wavecrestrentals.com/section.php?id=1",
     "https://yourneighborhoodhousing.com/",
 ]
