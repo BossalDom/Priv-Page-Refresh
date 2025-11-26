@@ -15,7 +15,6 @@ from bs4 import BeautifulSoup
 
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL", "")
 
-# Static or mostly static pages
 URLS = [
     "https://www.nyc.gov/site/hpd/services-and-information/find-affordable-housing-re-rentals.page",
     "https://cgmrcompliance.com/housing-opportunities-1",
@@ -39,14 +38,18 @@ URLS = [
     "https://www.taxaceny.com/projects-8",
     "https://tfc.com/about/affordable-re-rentals",
     "https://www.thebridgeny.org/news-and-media",
-    "https://www.elhrerentals.com/",
     "https://wavecrestrentals.com/section.php?id=1",
     "https://yourneighborhoodhousing.com/",
+    "https://www.elhrerentals.com/",
 ]
 
 STATE_DIR = Path(".")
 HASH_FILE = STATE_DIR / "hashes.json"
 TEXT_FILE = STATE_DIR / "page_texts.json"
+
+# TF Cornerstone specific state file
+TFC_INCOME_FILE = STATE_DIR / "tfc_income_options.json"
+TFC_URL = "https://tfc.com/about/affordable-re-rentals"
 
 HEADERS = {
     "User-Agent": (
@@ -101,6 +104,7 @@ def normalize_whitespace(text: str) -> str:
 # Content filters
 # --------------------------------------------------
 
+
 def filter_resideny_open_market(text: str) -> str:
     marker = "Open Market"
     idx = text.find(marker)
@@ -140,18 +144,58 @@ def filter_streeteasy(text: str) -> str:
     return text
 
 
+def filter_tfc(text: str) -> str:
+    """
+    Focus on the affordable re-rentals section and income requirement related lines
+    so that changes in those dropdowns drive the diff.
+    """
+    lower = text.lower()
+    idx = lower.find("affordable re-rentals")
+    if idx != -1:
+        text = text[idx:]
+
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    keep: list[str] = []
+
+    for line in lines:
+        if any(
+            key in line
+            for key in [
+                "Income Requirements",
+                "Household Income",
+                "Minimum Income",
+                "Maximum Income",
+                "% AMI",
+                "AMI ",
+            ]
+        ):
+            keep.append(line)
+            continue
+
+        # Keep lines that clearly look like unit summaries
+        if re.search(
+            r"\b(Studio|1 Bedroom|2 Bedroom|3 Bedroom|1BR|2BR|3BR)\b",
+            line,
+            re.IGNORECASE,
+        ):
+            keep.append(line)
+
+    return "\n".join(keep) if keep else text
+
+
 CONTENT_FILTERS = {
     "https://residenewyork.com/property-status/open-market/": filter_resideny_open_market,
     "https://ahgleasing.com/": filter_ahg,
     "https://sites.google.com/affordablelivingnyc.com/hpd/home": filter_google_sites,
     "https://streeteasy.com/building/riverton-square": filter_streeteasy,
+    "https://tfc.com/about/affordable-re-rentals": filter_tfc,
 }
 
 LISTING_KEYWORDS = [
     r"\b(apartment|apt|unit|studio|bedroom|br)\b",
     r"\b(rent|rental|lease|available|vacancy)\b",
     r"\b(household|income|ami|annual)\b",
-    r"\$\d{3,}",                      # dollar amounts
+    r"\$\d{3,}",
     r"\b\d+\s*(bed|br|bedroom)\b",
     r"\b(one|two|three|1|2|3)[\s-]?bedroom\b",
     r"\b(floor|bldg|building|address|location)\b",
@@ -276,7 +320,7 @@ def summarize_diff(
     if not snippets:
         return None
 
-    summary = "\n\n".join(snippets)
+    summary = "\n".join(snippets)
     if len(summary) > max_chars:
         summary = summary[:max_chars] + "\n\n[...truncated]"
     return summary
@@ -318,6 +362,101 @@ def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
 
 
 # --------------------------------------------------
+# TF Cornerstone income requirement tracking
+# --------------------------------------------------
+
+
+def extract_tfc_income_options(text: str) -> list[str]:
+    """
+    Pull out lines that describe income requirements and AMI bands.
+    We treat each line as an option and compare sets between runs.
+    """
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    options: list[str] = []
+
+    for line in lines:
+        if any(
+            key in line
+            for key in [
+                "Income Requirements",
+                "Household Income",
+                "Minimum Income",
+                "Maximum Income",
+                "% AMI",
+                "AMI ",
+            ]
+        ):
+            options.append(line)
+            continue
+
+        # Lines with obvious dollar incomes are also interesting
+        if re.search(r"\$\d{2,3},\d{3}", line):
+            options.append(line)
+
+    unique_sorted = sorted(set(options))
+    return unique_sorted
+
+
+def summarize_tfc_income_changes(
+    old_set: set[str], new_set: set[str]
+) -> str | None:
+    added = new_set - old_set
+    removed = old_set - new_set
+
+    if not added and not removed:
+        return None
+
+    parts: list[str] = []
+
+    if added:
+        parts.append("New TF Cornerstone income options detected:")
+        for opt in sorted(added):
+            parts.append(f"  • {opt}")
+
+    if removed:
+        parts.append("")
+        parts.append("Removed TF Cornerstone income options:")
+        for opt in sorted(removed):
+            parts.append(f"  • {opt}")
+
+    return "\n".join(parts)
+
+
+def send_tfc_income_alert(url: str, summary: str | None) -> None:
+    if not summary:
+        return
+
+    if not NTFY_TOPIC_URL:
+        print("[ERROR] NTFY_TOPIC_URL not set for TF Cornerstone alert")
+        print(f"[ALERT] Would notify for {url}:\n{summary}")
+        raise ValueError("NTFY_TOPIC_URL not configured")
+
+    body = f"{url}\n\n{summary}"
+    title = "TF Cornerstone income requirements updated"
+
+    try:
+        resp = requests.post(
+            NTFY_TOPIC_URL,
+            data=body.encode("utf-8"),
+            headers={
+                "Title": title,
+                "Priority": "high",
+                "Tags": "house,tada",
+                "Click": url,
+            },
+            timeout=20,
+        )
+        if 200 <= resp.status_code < 300:
+            print("[OK] TF Cornerstone alert sent")
+        else:
+            print(f"[ERROR] ntfy returned {resp.status_code} for TF Cornerstone")
+            raise RuntimeError(f"Notification failed: {resp.status_code}")
+    except Exception as exc:
+        print(f"[ERROR] Sending TF Cornerstone alert: {exc}")
+        raise
+
+
+# --------------------------------------------------
 # Main loop
 # --------------------------------------------------
 
@@ -325,6 +464,7 @@ def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
 def run_once() -> None:
     hashes = load_json(HASH_FILE)
     texts = load_json(TEXT_FILE)
+    tfc_income_state = load_json(TFC_INCOME_FILE)
 
     changed_any = False
 
@@ -334,9 +474,37 @@ def run_once() -> None:
         if new_text is None:
             continue
 
+        # Special logic for TF Cornerstone income requirement dropdowns
+        if url == TFC_URL:
+            options = extract_tfc_income_options(new_text)
+            new_set = set(options)
+            old_list = tfc_income_state.get(url, [])
+            old_set = set(old_list)
+
+            if not old_set:
+                print(
+                    f"[INIT] Recording {len(new_set)} TF Cornerstone "
+                    f"income options"
+                )
+                tfc_income_state[url] = sorted(new_set)
+                changed_any = True
+            else:
+                if new_set != old_set:
+                    summary = summarize_tfc_income_changes(old_set, new_set)
+                    send_tfc_income_alert(url, summary)
+                    tfc_income_state[url] = sorted(new_set)
+                    changed_any = True
+                else:
+                    print("[NOCHANGE] TF Cornerstone income options unchanged")
+
+            # Still store latest text and hash but skip generic diff
+            texts[url] = new_text
+            hashes[url] = hash_text(new_text)
+            continue
+
+        # Generic handling for other sites
         old_text = texts.get(url)
         old_hash = hashes.get(url)
-
         new_hash = hash_text(new_text)
 
         if old_text is None or old_hash is None:
@@ -363,6 +531,7 @@ def run_once() -> None:
     if changed_any:
         save_json(HASH_FILE, hashes)
         save_json(TEXT_FILE, texts)
+        save_json(TFC_INCOME_FILE, tfc_income_state)
     else:
         print("[INFO] No changes to save")
 
