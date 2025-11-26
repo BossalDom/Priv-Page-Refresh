@@ -162,9 +162,11 @@ def extract_apartment_ids(text: str, url: str) -> set[str]:
     """
     apartments: set[str] = set()
 
-    # Unit numbers like "Unit 408", "Apt 12F"
-    for match in re.findall(r"(Unit|Apt|Apartment)\s+\d+[A-Z]?", text, re.IGNORECASE):
-        apartments.add(match)
+    # Unit numbers like "Unit 408", "Apt 12F" - use finditer + group(0)
+    for match in re.finditer(
+        r"(Unit|Apt|Apartment)\s+\d+[A-Z]?", text, re.IGNORECASE
+    ):
+        apartments.add(match.group(0))
 
     # Address plus unit combos
     for match in re.finditer(
@@ -175,7 +177,8 @@ def extract_apartment_ids(text: str, url: str) -> set[str]:
 
     # Bedroom plus location plus rent
     for match in re.finditer(
-        r"(\d+)[-\s]*Bedroom\s+([A-Za-z\s]+)[:;]?\s*\$?([\d,]+)", text
+        r"(\d+)[-\s]*Bedroom\s+([A-Za-z\s]+)[:;]?\s*\$?([\d,]+)",
+        text,
     ):
         bedrooms, location, rent = match.groups()
         loc_clean = location.strip()[:20]
@@ -184,7 +187,8 @@ def extract_apartment_ids(text: str, url: str) -> set[str]:
 
     # Building with rent
     for match in re.finditer(
-        r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s+Apartments.*?Rent:\s*\$([\d,]+)", text
+        r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s+Apartments.*?Rent:\s*\$([\d,]+)",
+        text,
     ):
         building, rent = match.groups()
         rent_clean = rent.replace(",", "")
@@ -192,7 +196,8 @@ def extract_apartment_ids(text: str, url: str) -> set[str]:
 
     # Address with rent
     for match in re.finditer(
-        r"\b(\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b.*?\$\s*([\d,]+)", text
+        r"\b(\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b.*?\$\s*([\d,]+)",
+        text,
     ):
         address, rent = match.groups()
         rent_clean = rent.replace(",", "")
