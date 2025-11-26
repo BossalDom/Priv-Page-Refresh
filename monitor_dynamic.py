@@ -23,6 +23,7 @@ DYNAMIC_URLS = [
     "https://city5.nyc/",
     "https://ibis.powerappsportals.com/",
     "https://east-village-homes-owner-llc.rentcafewebsite.com/",
+    "https://www.nychdc.com/find-re-rentals",
 ]
 
 STATE_DIR = Path(".")
