@@ -1,33 +1,41 @@
-import hashlib
-import json
+#!/usr/bin/env python3
 import os
+import json
 import re
+import time
+import random
 from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
-import difflib
 from playwright.sync_api import sync_playwright
 
-# --------------- CONFIGURATION ---------------
+# --------------------------------------------------
+# Configuration
+# --------------------------------------------------
 
+NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL", "")
+
+# Only the tricky or JS heavy sites go here
 DYNAMIC_URLS = [
-    "https://afny.org/re-rentals",
     "https://iaffordny.com/re-rentals",
-    "https://mgnyconsulting.com/listings/",
+    "https://afny.org/re-rentals",
     "https://city5.nyc/",
     "https://ibis.powerappsportals.com/",
     "https://east-village-homes-owner-llc.rentcafewebsite.com/",
 ]
 
+STATE_DIR = Path(".")
+APT_STATE_FILE = STATE_DIR / "dynamic_apartments.json"
+TEXT_FILE = STATE_DIR / "dynamic_texts.json"
+
 HEADERS = {
-    "User-Agent": "PrivPageRefreshDynamic/1.0 (+https://github.com/BossalDom/Priv-Page-Refresh)"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
 }
-
-HASH_FILE = Path("dynamic_hashes.json")
-TEXT_FILE = Path("dynamic_texts.json")
-
-NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL")
 
 DEBUG = os.environ.get("DEBUG", "").lower() == "true"
 
@@ -37,194 +45,199 @@ def debug_print(msg: str) -> None:
         print(f"[DEBUG] {msg}")
 
 
-# --------------- STATE HELPERS ---------------
+# --------------------------------------------------
+# Helpers
+# --------------------------------------------------
+
 
 def load_json(path: Path) -> dict:
-    if path.exists():
-        try:
-            with path.open("r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"[WARN] Could not read {path}: {e}")
-    return {}
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as exc:
+        print(f"[WARN] Could not read {path}: {exc}")
+        return {}
 
 
 def save_json(path: Path, data: dict) -> None:
     try:
         with path.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        print(f"[WARN] Could not write {path}: {e}")
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as exc:
+        print(f"[ERROR] Could not write {path}: {exc}")
 
-
-# --------------- CONTENT FILTERS ---------------
 
 def normalize_whitespace(text: str) -> str:
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
-LISTING_KEYWORDS = [
-    r"\b(?:apartment|apt|unit|studio|bedroom|br)\b",
-    r"\b(?:rent|rental|lease|available|vacancy)\b",
-    r"\b(?:household|income|ami|annual)\b",
-    r"\$\d{1,3}(?:,\d{3})*",
-    r"\b\d+\s*(?:bed|br|bedroom)\b",
-    r"\b(?:one|two|three|1|2|3)[\s-]?bedroom\b",
-    r"\b(?:floor|bldg|building|address|location)\b",
-    r"\b(?:sq\.?\s*ft|square\s+feet)\b",
-    r"\b(?:apply|application|waitlist|lottery)\b",
-]
+# Site specific filters are optional but help cut noise
 
-LISTING_REGEXES = [re.compile(p, re.IGNORECASE) for p in LISTING_KEYWORDS]
-
-IGNORE_PATTERNS = [
-    r"^(?:skip to|menu|search|login|sign in|subscribe|newsletter)",
-    r"^(?:facebook|twitter|instagram|linkedin|youtube)",
-    r"^(?:privacy policy|terms|copyright|cookies)",
-    r"^\s*[×✕✖]\s*$",
-    r"^(?:home|about|contact|careers|media|events)\s*$",
-]
-
-IGNORE_REGEXES = [re.compile(p, re.IGNORECASE) for p in IGNORE_PATTERNS]
-
-
-def extract_relevant_content(text: str) -> str:
-    lines = text.splitlines()
-    relevant_lines: list[str] = []
-    context_window: list[str] = []
-
-    for line in lines:
-        line = line.strip()
-        if not line or len(line) < 3:
-            continue
-
-        if any(rx.match(line) for rx in IGNORE_REGEXES):
-            continue
-
-        has_listing_content = any(rx.search(line) for rx in LISTING_REGEXES)
-
-        if has_listing_content:
-            if context_window:
-                relevant_lines.extend(context_window)
-            relevant_lines.append(line)
-            context_window = []
-        else:
-            context_window.append(line)
-            if len(context_window) > 2:
-                context_window.pop(0)
-
-    result = "\n".join(relevant_lines)
-    if len(result) < 100:
-        return text
-    return result
-
-
-def apply_content_filters(url: str, text: str) -> str:
-    text = extract_relevant_content(text)
+def filter_iafford(text: str) -> str:
+    marker = "RE-RENTALS"
+    idx = text.find(marker)
+    if idx != -1:
+        text = text[idx:]
     return text
 
 
-# --------------- FETCH AND DIFF ---------------
+def filter_afny(text: str) -> str:
+    marker = "RE-RENTALS"
+    idx = text.find(marker)
+    if idx != -1:
+        text = text[idx:]
+    return text
+
+
+CONTENT_FILTERS = {
+    "https://iaffordny.com/re-rentals": filter_iafford,
+    "https://afny.org/re-rentals": filter_afny,
+}
+
+
+def apply_content_filters(url: str, text: str) -> str:
+    site_filter = CONTENT_FILTERS.get(url)
+    if site_filter:
+        text = site_filter(text)
+    return text
+
+
+# --------------------------------------------------
+# Fetch with Playwright, with basic anti blocking
+# --------------------------------------------------
+
 
 def fetch_rendered_text(url: str) -> str:
-    """
-    Use Playwright to load the page with JavaScript executed.
-    """
+    # Small random delay to avoid obvious patterns
+    time.sleep(random.uniform(2, 5))
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent=HEADERS["User-Agent"])
+        context = browser.new_context(
+            user_agent=HEADERS["User-Agent"],
+            viewport={"width": 1920, "height": 1080},
+            locale="en-US",
+        )
         page = context.new_page()
-        page.goto(url, wait_until="networkidle", timeout=45000)
 
-        # Extra wait for lazy loaded content
         try:
-            page.wait_for_selector("body", timeout=5000)
-        except Exception:
-            # If this fails, we already waited on networkidle, so continue
-            pass
+            page.goto(url, wait_until="networkidle", timeout=45000)
+            page.wait_for_timeout(5000)
 
-        page.wait_for_timeout(3000)
+            content = page.content()
+            if "forbidden" in content.lower() or "access denied" in content.lower():
+                raise Exception("Site blocking detected")
 
-        html = page.content()
-        debug_print(f"[dynamic] Raw HTML length for {url}: {len(html)} chars")
-
-        browser.close()
+            html = content
+        finally:
+            browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
     raw_text = soup.get_text(separator="\n")
-    debug_print(f"[dynamic] Raw text length for {url}: {len(raw_text)} chars")
+    debug_print(f"[dynamic] Raw text length for {url}: {len(raw_text)}")
 
-    text = "\n".join(line.strip() for line in raw_text.splitlines() if line.strip())
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    text = "\n".join(lines)
     text = apply_content_filters(url, text)
 
-    debug_print(f"[dynamic] Filtered text length for {url}: {len(text)} chars")
-    debug_print(f"[dynamic] First 200 chars: {text[:200]}")
+    debug_print(f"[dynamic] Filtered text length for {url}: {len(text)}")
+    debug_print(f"[dynamic] First 200 chars for {url}: {text[:200]}")
 
     text = normalize_whitespace(text)
     return text
 
 
-def hash_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+# --------------------------------------------------
+# Apartment extraction and change formatting
+# --------------------------------------------------
 
 
-def summarize_diff(
-    old_text: str,
-    new_text: str,
-    max_snippets: int = 5,
-    context_chars: int = 120,
-    max_chars: int = 1200,
-) -> str | None:
-    sm = difflib.SequenceMatcher(None, old_text, new_text)
-    additions: list[str] = []
-    removals: list[str] = []
+def extract_apartment_ids(text: str, url: str) -> set[str]:
+    """
+    Extract identifiers that represent individual apartments or listings.
+    The goal is to be stable if the page layout or order changes.
+    """
+    apartments: set[str] = set()
 
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == "equal":
-            continue
+    # Unit numbers like "Unit 408", "Apt 12F"
+    for match in re.findall(r"(Unit|Apt|Apartment)\s+\d+[A-Z]?", text, re.IGNORECASE):
+        apartments.add(match)
 
-        if tag in ("insert", "replace"):
-            new_seg = new_text[j1:j2].strip()
-            if new_seg and len(new_seg) >= 10:
-                start = max(0, j1 - context_chars)
-                end = min(len(new_text), j2 + context_chars)
-                snippet = new_text[start:end].strip()
-                additions.append(f"➕ {snippet}")
+    # Address plus unit combos
+    for match in re.finditer(
+        r"(\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+[Aa]partments?[-\s]*(?:Unit\s+)?(\d+[A-Z]?)?",
+        text,
+    ):
+        apartments.add(match.group(0))
 
-        if tag in ("delete", "replace"):
-            old_seg = old_text[i1:i2].strip()
-            if old_seg and len(old_seg) >= 10:
-                removals.append(f"➖ {old_seg[:100]}")
+    # Bedroom plus location plus rent
+    for match in re.finditer(
+        r"(\d+)[-\s]*Bedroom\s+([A-Za-z\s]+)[:;]?\s*\$?([\d,]+)", text
+    ):
+        bedrooms, location, rent = match.groups()
+        loc_clean = location.strip()[:20]
+        rent_clean = rent.replace(",", "")
+        apartments.add(f"{bedrooms}BR-{loc_clean}-${rent_clean}")
 
-    snippets: list[str] = []
-    snippets.extend(additions[:max_snippets])
-    if len(snippets) < max_snippets:
-        snippets.extend(removals[: max_snippets - len(snippets)])
+    # Building with rent
+    for match in re.finditer(
+        r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s+Apartments.*?Rent:\s*\$([\d,]+)", text
+    ):
+        building, rent = match.groups()
+        rent_clean = rent.replace(",", "")
+        apartments.add(f"{building}-${rent_clean}")
 
-    if not snippets:
+    # Address with rent
+    for match in re.finditer(
+        r"\b(\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b.*?\$\s*([\d,]+)", text
+    ):
+        address, rent = match.groups()
+        rent_clean = rent.replace(",", "")
+        apartments.add(f"{address}-${rent_clean}")
+
+    debug_print(f"[dynamic] Raw extracted {len(apartments)} ids for {url}")
+    return apartments
+
+
+def format_apartment_changes(added: set[str], removed: set[str]) -> str | None:
+    if not added and not removed:
         return None
 
-    summary = "\n\n".join(snippets)
-    if len(summary) > max_chars:
-        summary = summary[:max_chars] + "\n\n[...truncated]"
-    return summary
+    parts: list[str] = []
 
+    if added:
+        parts.append("🆕 NEW LISTINGS:")
+        for apt in sorted(added)[:10]:
+            parts.append(f"  • {apt}")
+        if len(added) > 10:
+            parts.append(f"  • ... and {len(added) - 10} more")
 
-# --------------- NOTIFICATIONS ---------------
+    if removed:
+        parts.append("")
+        parts.append("❌ REMOVED:")
+        for apt in sorted(removed)[:5]:
+            parts.append(f"  • {apt}")
+        if len(removed) > 5:
+            parts.append(f"  • ... and {len(removed) - 5} more")
+
+    return "\n".join(parts)
+
 
 def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
     if not diff_summary:
-        print(f"[INFO] Dynamic change on {url} was too minor or filtered out. No alert sent.")
+        print(f"[INFO] No meaningful apartment changes on {url}")
         return
 
     if not NTFY_TOPIC_URL:
-        print("[ERROR] NTFY_TOPIC_URL not set in environment. Set it as a GitHub Actions secret.")
-        print(f"[ALERT] Would have sent notification for {url}:\n{diff_summary}")
-        raise ValueError("NTFY_TOPIC_URL environment variable not configured")
+        print("[ERROR] NTFY_TOPIC_URL not set")
+        print(f"[ALERT] Would notify for {url}:\n{diff_summary}")
+        raise ValueError("NTFY_TOPIC_URL not configured")
 
-    body = f"{url}\n\nChanges:\n{diff_summary}"
-    title = "Dynamic housing site updated"
+    body = f"{url}\n\n{diff_summary}"
+    title = "New housing listings"
 
     try:
         resp = requests.post(
@@ -232,65 +245,102 @@ def send_ntfy_alert(url: str, diff_summary: str | None) -> None:
             data=body.encode("utf-8"),
             headers={
                 "Title": title,
-                "Priority": "4",
-                "Tags": "house,warning",
+                "Priority": "high",
+                "Tags": "house,tada",
                 "Click": url,
             },
             timeout=20,
         )
         if 200 <= resp.status_code < 300:
-            print(f"[OK] Dynamic alert sent for {url}")
+            print(f"[OK] Alert sent for {url}")
         else:
-            print(f"[ERROR] ntfy returned {resp.status_code} for dynamic url {url}")
+            print(f"[ERROR] ntfy returned {resp.status_code}")
             raise RuntimeError(f"Notification failed: {resp.status_code}")
-    except Exception as e:
-        print(f"[ERROR] Sending dynamic ntfy alert: {e}")
+    except Exception as exc:
+        print(f"[ERROR] Sending alert: {exc}")
         raise
 
 
-# --------------- MAIN LOOP ---------------
+# --------------------------------------------------
+# Main dynamic monitor
+# --------------------------------------------------
+
 
 def run_dynamic_once() -> None:
-    hash_state = load_json(HASH_FILE)
+    apt_state = load_json(APT_STATE_FILE)
     text_state = load_json(TEXT_FILE)
+
     changed_any = False
 
     for url in DYNAMIC_URLS:
-        print(f"[INFO] Checking dynamic {url}")
+        print(f"[INFO] Checking dynamic site {url}")
+
         try:
             new_text = fetch_rendered_text(url)
-        except Exception as e:
-            print(f"[ERROR] Rendering {url}: {e}")
+        except Exception as exc:
+            print(f"[ERROR] Failed to render {url}: {exc}")
+            if "forbidden" in str(exc).lower() or "403" in str(exc):
+                print("[WARN] Blocking detected, will retry next run")
             continue
 
-        new_hash = hash_text(new_text)
-        old_hash = hash_state.get(url)
-        old_text = text_state.get(url)
+        if (
+            "forbidden" in new_text.lower()
+            or "access denied" in new_text.lower()
+            or "403" in new_text.lower()
+        ):
+            print(f"[WARN] {url} appears blocked or forbidden, skipping")
+            continue
 
-        if old_hash is None or old_text is None:
-            print(f"[INIT] Recording initial dynamic state for {url}")
-            hash_state[url] = new_hash
+        if len(new_text) < 50:
+            print(
+                f"[WARN] {url} returned very short content "
+                f"({len(new_text)} chars), skipping"
+            )
+            continue
+
+        new_apartments = extract_apartment_ids(new_text, url)
+        old_apartments = set(apt_state.get(url, []))
+
+        debug_print(f"[dynamic] Found {len(new_apartments)} apartments on {url}")
+
+        if not old_apartments:
+            print(f"[INIT] Recording {len(new_apartments)} apartments for {url}")
+            apt_state[url] = sorted(new_apartments)
             text_state[url] = new_text
             changed_any = True
             continue
 
-        if new_hash != old_hash:
-            print(f"[CHANGE] Detected dynamic change on {url}")
-            diff_summary = summarize_diff(old_text, new_text)
-            if diff_summary:
-                print("[DIFF]\n" + diff_summary)
-            send_ntfy_alert(url, diff_summary)
-            hash_state[url] = new_hash
+        added = new_apartments - old_apartments
+        removed = old_apartments - new_apartments
+
+        if added or removed:
+            print(
+                f"[CHANGE] {url}: +{len(added)} apartments, "
+                f"-{len(removed)} apartments"
+            )
+
+            if added:
+                print(f"  Added example: {list(added)[:3]}")
+            if removed:
+                print(f"  Removed example: {list(removed)[:3]}")
+
+            diff_summary = format_apartment_changes(added, removed)
+
+            # Only alert when there are new listings
+            if added and diff_summary:
+                send_ntfy_alert(url, diff_summary)
+
+            apt_state[url] = sorted(new_apartments)
             text_state[url] = new_text
             changed_any = True
         else:
-            print(f"[NOCHANGE] No relevant dynamic change on {url}")
+            print(f"[NOCHANGE] {url} apartment set unchanged")
 
     if changed_any:
-        save_json(HASH_FILE, hash_state)
+        save_json(APT_STATE_FILE, apt_state)
         save_json(TEXT_FILE, text_state)
     else:
-        print("[INFO] No dynamic changes to save.")
+        print("[INFO] No dynamic changes to save")
 
 
 if __name__ == "__main__":
