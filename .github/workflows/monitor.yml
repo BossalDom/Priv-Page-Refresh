@@ -1,12 +1,16 @@
 name: Website monitor
 
 on:
-  schedule:
-    # Fallback schedule. Every 5 minutes between 12 and 23 UTC.
-    - cron: "*/5 12-23 * * *"
+  # Triggered by external cron job
   repository_dispatch:
-    types: [check-static]
+    types: [static-monitor]
+
+  # Manual trigger
   workflow_dispatch:
+
+  # Optional backup schedule inside GitHub (every 3 hours)
+  schedule:
+    - cron: "0 */3 * * *"
 
 permissions:
   contents: write
@@ -43,20 +47,8 @@ jobs:
           if [[ -n "$(git status --porcelain hashes.json page_texts.json)" ]]; then
             git pull --rebase origin main || true
             git add hashes.json page_texts.json
-            git commit -m "Update monitor state [skip ci]" || echo "Nothing to commit"
-
-            for i in {1..3}; do
-              if git push origin HEAD:main; then
-                echo "State committed successfully"
-                exit 0
-              fi
-              echo "Push failed, retry $i of 3"
-              sleep 2
-              git pull --rebase origin main || true
-            done
-
-            echo "Failed to push state after 3 attempts"
-            exit 1
+            git commit -m "Update static monitor state [skip ci]" || echo "Nothing to commit"
+            git push origin HEAD:main || echo "Push failed, will try again next run"
           else
-            echo "No changes to commit"
+            echo "No static changes to commit"
           fi
