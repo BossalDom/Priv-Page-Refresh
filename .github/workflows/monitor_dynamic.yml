@@ -4,7 +4,7 @@ on:
   # GitHub scheduler (fallback / extra)
   schedule:
     # Every 5 minutes between 12:00 and 23:59 UTC (7–18 Eastern)
-    - cron: "*/5 12-23 * * *"
+    - cron: "*/5 * * * *"
 
   # Manual run from the Actions tab
   workflow_dispatch:
