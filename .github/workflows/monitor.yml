@@ -1,17 +1,11 @@
 name: Website monitor
 
 on:
-  # GitHub's own scheduler (fallback / extra)
   schedule:
-    # Every 5 minutes between 12:00 and 23:59 UTC (7–18 Eastern)
-    - cron: "*/5 * * * *"
-
-  # Manual run from the Actions tab
-  workflow_dispatch:
-
-  # External trigger from cron-job.org
+    - cron: "*/5 * * * *"      # every 5 minutes, all day
   repository_dispatch:
-    types: [static-monitor]
+    types: [static-monitor]    # event_type from cron job
+  workflow_dispatch:           # manual run button in Actions tab
 
 permissions:
   contents: write
@@ -27,7 +21,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.11"
+          cache: "pip"
 
       - name: Install dependencies
         run: |
