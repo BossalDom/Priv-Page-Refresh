@@ -42,9 +42,12 @@
     "West 135th Street Apartments 0725- Unit 2B Rent:3,431",
     "Winthrop Street Unit 4C 0925 Rent:1,956"
   ],
-  "https://ibis.powerappsportals.com/": [],
+  "https://ibis.powerappsportals.com/": [
+    "1BR-Apartment\nBright-$1"
+  ],
   "https://mgnyconsulting.com/listings/": [
-    "2010 Walton Avenue Apartments"
+    "2010 Walton Avenue Apartments",
+    "Beach 101 Apartments"
   ],
   "https://residenewyork.com/property-status/open-market/": [
     "076 Per Month\nView Property\nDunbar Apartments",
