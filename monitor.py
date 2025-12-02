@@ -108,13 +108,16 @@ IGNORE_REGEXES = [re.compile(p, re.IGNORECASE) for p in IGNORE_PATTERNS]
 
 def extract_relevant_content(text: str) -> str:
     """
-    Extract listing relevant content while preserving some context.
+    Extract listing-relevant content while preserving context.
 
-    Less aggressive than pure line based filtering.
+    If the filter removes almost nothing, we fall back to hashing the
+    original text to avoid overfitting to tiny layout changes.
     """
     lines = text.splitlines()
-    relevant: List[str] = []
-    context: List[str] = []
+    raw_chars = sum(len(ln) for ln in lines)
+
+    relevant_lines: list[str] = []
+    context_window: list[str] = []
 
     for line in lines:
         line = line.strip()
@@ -124,34 +127,48 @@ def extract_relevant_content(text: str) -> str:
         if any(rx.match(line) for rx in IGNORE_REGEXES):
             continue
 
-        has_listing = any(rx.search(line) for rx in LISTING_REGEXES)
+        has_listing_content = any(rx.search(line) for rx in LISTING_REGEXES)
 
-        if has_listing:
-            relevant.extend(context)
-            relevant.append(line)
-            context = []
+        if has_listing_content:
+            relevant_lines.extend(context_window)
+            relevant_lines.append(line)
+            context_window = []
         else:
-            context.append(line)
-            if len(context) > 2:
-                context.pop(0)
+            context_window.append(line)
+            if len(context_window) > 2:
+                context_window.pop(0)
 
-    result = "\n".join(relevant)
+    result = "\n".join(relevant_lines)
 
-    # If we stripped almost everything, return original text
+    # If we got almost nothing, or filtering removed very little,
+    # use the original text so that hashes are more stable.
+    if not raw_chars:
+        return text
+
     if len(result) < 100:
         return text
 
+    ratio = len(result) / raw_chars
+    if ratio > 0.7:
+        return text
+
     return result
+
 
 
 # Site specific filters (simple versions, can expand later)
 
 
 def filter_resideny_open_market(text: str) -> str:
-    marker = "Open Market"
-    idx = text.find(marker)
-    if idx != -1:
-        return text[idx:]
+    """
+    ResideNY Open Market page.
+
+    Keep content starting from the 'Open Market' section heading,
+    case insensitive, so that nav or header tweaks do not change the hash.
+    """
+    m = re.search(r"open\s+market", text, re.IGNORECASE)
+    if m:
+        return text[m.start():]
     return text
 
 
