@@ -1,10 +1,13 @@
-name: Dynamic website monitor
+name: dynamic-monitor
 
 on:
+  # Backup schedule inside GitHub
   schedule:
-    - cron: "*/5 * * * *"         # every 5 minutes, all day
+    - cron: "*/5 * * * *"
+  # Triggered by cron-job.org
   repository_dispatch:
-    types: [dynamic-monitor]      # event_type from cron job
+    types: [dynamic-monitor]
+  # Manual trigger
   workflow_dispatch:
 
 permissions:
@@ -22,7 +25,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
       - name: Install dependencies
         run: |
@@ -30,36 +32,27 @@ jobs:
           pip install requests beautifulsoup4 playwright
 
       - name: Install Playwright browsers
-        run: python -m playwright install --with-deps chromium
+        run: |
+          python -m playwright install --with-deps chromium
 
       - name: Run dynamic monitor script
         env:
           NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
-          DEBUG: "false"
-        run: python monitor_dynamic.py
+        run: |
+          python monitor_dynamic.py
 
       - name: Commit updated dynamic state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          if [[ -n "$(git status --porcelain dynamic_apartments.json dynamic_page_texts.json)" ]]; then
-            git pull --rebase origin main || true
-            git add dynamic_apartments.json dynamic_page_texts.json
-            git commit -m "Update dynamic monitor state [skip ci]" || echo "Nothing to commit"
-
-            for i in {1..3}; do
-              if git push origin HEAD:main; then
-                echo "Dynamic state committed successfully"
-                exit 0
-              fi
-              echo "Dynamic push failed, retry $i/3..."
-              sleep 2
-              git pull --rebase origin main || true
-            done
-
-            echo "ERROR: Failed to push dynamic state after 3 attempts"
-            exit 1
+          # Include all dynamic state files that might exist
+          if [[ -n "$(git status --porcelain dynamic_apartments.json dynamic_texts.json dynamic_hashes.json 2>/dev/null)" ]]; then
+            echo "Dynamic state files changed, committing..."
+            git pull --rebase origin main
+            git add dynamic_apartments.json dynamic_texts.json dynamic_hashes.json 2>/dev/null || true
+            git commit -m "Update dynamic monitor state [skip ci]"
+            git push origin HEAD:main
           else
-            echo "No dynamic changes to commit"
+            echo "No dynamic state changes to commit"
           fi
