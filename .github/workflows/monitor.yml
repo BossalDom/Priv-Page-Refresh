@@ -46,7 +46,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # 🟢 FIX: Include all state files, including new failure/alert trackers
+          # Include all state files (*.json)
           if [[ -n "$(git status --porcelain '*.json')" ]]; then
             echo "State files changed, committing..."
             
