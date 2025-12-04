@@ -138,7 +138,8 @@ def summarize_diff(old_text: str, new_text: str) -> str:
             summary += line + "\n"
             changes += 1
             if changes >= 15:
-                summary += f"\n...and {len(old_lines) + len(new_lines)} more lines changed. (Truncated for brevity)\n"
+                # Truncate long diffs
+                summary += f"\n...and more lines changed. (Truncated for brevity)\n"
                 break
 
     if not summary:
