@@ -45,13 +45,13 @@ STATIC_URLS: list[str] = [
 ]
 
 # ============================================================
-# Files for state (CORRECTED)
+# Files for state
 # ============================================================
 
 HASH_FILE = Path("hashes.json")
 TEXT_FILE = Path("page_texts.json")
 FAILURE_FILE = Path("failures.json")
-# 🟢 CRITICAL: Kept for Site-Down Spam Prevention
+# Kept for Site-Down Spam Prevention
 ALERT_COOLDOWN_FILE = Path("last_alert.json") 
 
 # Notification target
@@ -180,7 +180,7 @@ def send_ntfy_alert(url: str, message: str, priority: str = "default") -> None:
 
 
 # ============================================================
-# Main (UPDATED: Content Change Cooldown Removed, Failure Cooldown Kept)
+# Main 
 # ============================================================
 
 def run_once() -> None:
@@ -243,7 +243,7 @@ def run_once() -> None:
             print(f"[NOCHANGE] {url}")
             continue
 
-        # REMOVED COOLDOWN LOGIC - Always send alerts for content changes
+        # INSTANT ALERT LOGIC - No cooldown for successful content changes
         print(f"[CHANGE] {url} content hash changed. Sending alert.")
         diff_summary = summarize_diff(old_text, text)
         send_ntfy_alert(url, diff_summary, priority="default")
