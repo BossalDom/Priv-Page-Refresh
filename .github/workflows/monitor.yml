@@ -1,4 +1,46 @@
-- name: Commit updated state
+name: Website monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"       # every 5 minutes
+  workflow_dispatch:            # manual trigger from GitHub UI
+  repository_dispatch:          # external trigger from cron-job.org
+    types: [static-monitor]
+
+concurrency:
+  group: housing-monitor-static
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  check-sites:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 lxml
+
+      - name: Run monitor script
+        env:
+          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
+          DEBUG: "false"
+        run: |
+          python monitor.py
+
+      - name: Commit updated state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
