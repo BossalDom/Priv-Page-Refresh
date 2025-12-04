@@ -1,4 +1,47 @@
-- name: Commit updated dynamic state
+name: Dynamic website monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  repository_dispatch:
+    types: [dynamic-monitor]
+  workflow_dispatch:
+
+concurrency:
+  group: housing-monitor-dynamic
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  check-dynamic-sites:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 lxml playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run dynamic monitor script
+        env:
+          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
+          DEBUG: "false"
+        run: |
+          python monitor_dynamic.py
+
+      - name: Commit updated dynamic state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
