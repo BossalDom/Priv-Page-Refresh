@@ -21,14 +21,14 @@ DYNAMIC_URLS: list[str] = [
     # Primary Dynamic Sites
     "https://iaffordny.com/re-rentals",
     "https://afny.org/re-rentals",
-    "https://mgnyconsulting.com/listings/", # Moved from static to dynamic
+    "https://mgnyconsulting.com/listings/", 
     
     # Other Dynamic/JS-reliant Sites
     "https://city5.nyc/",
     "https://ibis.powerappsportals.com/",
     "https://www.prontohousingrentals.com/",
     "https://riseboro.org/housing/woodlawn-senior-living/",
-    "https://www.rivertonsquare.com/available-rentals", # Canonical Riverton site (instead of Streeteasy)
+    "https://www.rivertonsquare.com/available-rentals", # Canonical Riverton site (replaced Streeteasy)
     "https://east-village-homes-owner-llc.rentcafewebsite.com/",
 ]
 
