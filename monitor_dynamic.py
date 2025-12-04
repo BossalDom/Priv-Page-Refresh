@@ -151,7 +151,8 @@ def extract_apartment_ids(text: str, url: str) -> Set[str]:
         pattern = re.compile(r"(Unit|Apt)\s*[\d\-A-Z]+|Rent:\s*[\$\d,]+|Available Units:\s*\d+", re.MULTILINE | re.IGNORECASE)
         
     
-    apartments = {match.strip() for match in pattern.findall(text)}
+    # 🟢 FIX: Do not call .strip() here, as match may be a tuple. Handle stripping in the loop below.
+    apartments = set(pattern.findall(text))
     
     # Flatten tuples and clean extra whitespace
     cleaned_apts = set()
@@ -159,8 +160,10 @@ def extract_apartment_ids(text: str, url: str) -> Set[str]:
         if isinstance(item, tuple):
             for sub_item in item:
                 if sub_item:
+                    # Now it's safe to strip
                     cleaned_apts.add(re.sub(r'\s+', ' ', sub_item).strip())
         else:
+            # Now it's safe to strip
             cleaned_apts.add(re.sub(r'\s+', ' ', item).strip())
 
     return cleaned_apts
@@ -262,7 +265,8 @@ def run_dynamic_once() -> None:
             
             # 🟢 ALERT LOGIC: Only send alert if new listings were ADDED
             if added:
-                summary = format_apartment_changes(added, removed)
+                # Still generate the full summary, but only send if there are additions
+                summary = format_apartment_changes(added, removed) 
                 send_ntfy_alert(url, summary, priority="5")
             
             # Update the cooldown file time on successful change to reset site-down timer
