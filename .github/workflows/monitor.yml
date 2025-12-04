@@ -8,7 +8,7 @@ on:
     types: [static-monitor]
 
 concurrency:
-  group: housing-monitor-static
+  group: housing-monitor-all-v2  # 🟢 FIX: Unified concurrency group
   cancel-in-progress: false
 
 permissions:
@@ -17,6 +17,7 @@ permissions:
 jobs:
   check-sites:
     runs-on: ubuntu-latest
+    timeout-minutes: 15          # 🟢 FIX: Add workflow timeout
 
     steps:
       - name: Checkout repo
@@ -45,6 +46,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          # 🟢 FIX: Include all state files, including new failure/alert trackers
           if [[ -n "$(git status --porcelain '*.json')" ]]; then
             echo "State files changed, committing..."
             
