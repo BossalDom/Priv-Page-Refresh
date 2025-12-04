@@ -6,10 +6,10 @@ import hashlib
 import json
 import os
 import re
-import random   # 🟢 FIX: Added for rate limiting
-import time     # 🟢 FIX: Added for rate limiting and cooldown
+import random   
+import time     
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Set
 
 import requests
 from bs4 import BeautifulSoup
@@ -18,7 +18,6 @@ from bs4 import BeautifulSoup
 # URL list - 20 Static Sites
 # ============================================================
 
-# Note: Keeping your original list structure.
 STATIC_URLS: list[str] = [
     # HPD & Government-adjacent
     "https://www.nyc.gov/site/hpd/services-and-information/find-affordable-housing-re-rentals.page",
@@ -46,13 +45,14 @@ STATIC_URLS: list[str] = [
 ]
 
 # ============================================================
-# Files for state (UPDATED)
+# Files for state (CORRECTED)
 # ============================================================
 
 HASH_FILE = Path("hashes.json")
 TEXT_FILE = Path("page_texts.json")
-FAILURE_FILE = Path("failures.json")             # 🟢 FIX: New file for failure count
-ALERT_COOLDOWN_FILE = Path("last_alert.json")    # 🟢 FIX: New file for alert cooldown
+FAILURE_FILE = Path("failures.json")
+# 🟢 CRITICAL: Kept for Site-Down Spam Prevention
+ALERT_COOLDOWN_FILE = Path("last_alert.json") 
 
 # Notification target
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL", "").strip()
@@ -76,12 +76,11 @@ def debug_print(msg: str) -> None:
     if DEBUG:
         print("[DEBUG]", msg)
 
-def load_json(path: Path) -> Dict[str, str | int | float]:
+def load_json(path: Path) -> Dict[str, str | int | float | List | Set]:
     if not path.exists():
         return {}
     try:
         with path.open("r", encoding="utf-8") as f:
-            # Safely load JSON data, converting to expected types
             data = json.load(f)
             return data if isinstance(data, dict) else {}
     except Exception as e:
@@ -98,7 +97,6 @@ def save_json(path: Path, data: Dict) -> None:
 # ============================================================
 
 def fetch_page_text(url: str) -> Optional[str]:
-    # ... (fetch_page_text remains the same)
     try:
         # Use simple requests for static content
         response = requests.get(url, headers=HEADERS, timeout=15)
@@ -182,25 +180,23 @@ def send_ntfy_alert(url: str, message: str, priority: str = "default") -> None:
 
 
 # ============================================================
-# Main (UPDATED with Rate Limit, Failure Tracking, and Cooldown)
+# Main (UPDATED: Content Change Cooldown Removed, Failure Cooldown Kept)
 # ============================================================
 
 def run_once() -> None:
     hashes = load_json(HASH_FILE)
     texts = load_json(TEXT_FILE)
     
-    # 🟢 FIX: Load new state for failure and cooldown
+    # Load new state for failure and cooldown
     failure_counts = load_json(FAILURE_FILE)
-    alert_cooldowns = load_json(ALERT_COOLDOWN_FILE)
+    alert_cooldowns = load_json(ALERT_COOLDOWN_FILE) 
 
     changed_any = False
     current_time = time.time()
-    
-    # Use a separate dict to stage updates to failure counts
     next_failure_counts = {} 
 
     for url in STATIC_URLS:
-        # 🟢 FIX: Add random delay for rate limiting
+        # Rate limiting
         delay = random.uniform(1, 3)
         print(f"[INFO] Waiting {delay:.1f}s before fetching {url}")
         time.sleep(delay)
@@ -208,7 +204,7 @@ def run_once() -> None:
         print(f"[INFO] Checking static {url}")
         text = fetch_page_text(url)
         
-        # 🟢 FIX: Implement Failure Tracking
+        # Implement Failure Tracking
         if text is None:
             count = int(failure_counts.get(url, 0)) + 1
             next_failure_counts[url] = count
@@ -216,7 +212,7 @@ def run_once() -> None:
             
             # Alert after 3 consecutive failures
             if count >= 3:
-                # 🟢 FIX: Implement Notification Cooldown (2 hours for site down alerts)
+                # KEEPING SITE-DOWN ALERT COOLDOWN (2 hours) to prevent spam
                 last_alert = float(alert_cooldowns.get(url, 0))
                 if current_time - last_alert > 3600 * 2: 
                     send_ntfy_alert(
@@ -234,7 +230,6 @@ def run_once() -> None:
         
         new_hash = hash_text(text)
         old_hash = hashes.get(url)
-        # Use .get with empty string fallback to handle new/missing entries cleanly
         old_text = str(texts.get(url, "")) 
 
         if old_hash is None or old_text == "":
@@ -248,24 +243,21 @@ def run_once() -> None:
             print(f"[NOCHANGE] {url}")
             continue
 
-        # 🟢 FIX: Implement Cooldown for Content Change Alert (1 hour)
-        last_alert = float(alert_cooldowns.get(url, 0))
-        if current_time - last_alert < 3600:
-            print(f"[COOLDOWN] Change detected for {url}, but skipping alert (last alerted < 1hr ago)")
-        else:
-            print(f"[CHANGE] {url} content hash changed. Sending alert.")
-            diff_summary = summarize_diff(old_text, text)
-            send_ntfy_alert(url, diff_summary, priority="default")
-            alert_cooldowns[url] = current_time # Update alert time
-            changed_any = True
-
+        # REMOVED COOLDOWN LOGIC - Always send alerts for content changes
+        print(f"[CHANGE] {url} content hash changed. Sending alert.")
+        diff_summary = summarize_diff(old_text, text)
+        send_ntfy_alert(url, diff_summary, priority="default")
+        
+        # Update the cooldown file time on successful change to reset site-down timer
+        alert_cooldowns[url] = current_time 
+        
         hashes[url] = new_hash
         texts[url] = text
         changed_any = True
 
-    # 🟢 FIX: Save all updated state files
+    # Save all updated state files
     save_json(FAILURE_FILE, next_failure_counts)
-    save_json(ALERT_COOLDOWN_FILE, alert_cooldowns)
+    save_json(ALERT_COOLDOWN_FILE, alert_cooldowns) 
     
     if changed_any:
         save_json(HASH_FILE, hashes)
