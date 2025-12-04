@@ -33,11 +33,13 @@ DYNAMIC_URLS: list[str] = [
 ]
 
 # ============================================================
-# Files and Config
+# Files and Config (UPDATED)
 # ============================================================
 
 APT_STATE_FILE = Path("dynamic_apartments.json")
 TEXT_STATE_FILE = Path("dynamic_texts.json")
+FAILURE_FILE = Path("dynamic_failures.json")             # 🟢 FIX: New file for dynamic failure count
+ALERT_COOLDOWN_FILE = Path("dynamic_last_alert.json")    # 🟢 FIX: New file for dynamic alert cooldown
 
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL", "").strip()
 
@@ -59,12 +61,13 @@ def debug_print(msg: str) -> None:
     if DEBUG:
         print("[DEBUG]", msg)
 
-def load_json(path: Path) -> Dict[str, List[str]]:
+def load_json(path: Path) -> Dict[str, List[str] | int | float]:
     if not path.exists():
         return {}
     try:
         with path.open("r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
     except Exception as e:
         print(f"[WARN] Error loading {path}: {e}")
         return {}
@@ -96,15 +99,14 @@ def fetch_rendered_text(url: str) -> Optional[str]:
             page = context.new_page()
 
             try:
-                # FIX: Switched to 'domcontentloaded' (less strict) and 60s timeout
-                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                # 🟢 FIX: Reduced timeout from 60s to 30s
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 
                 # Wait 2 seconds for any immediate rendering
                 page.wait_for_timeout(2000)
                 
                 html = page.content()
             
-            # FIX: Catch all Playwright errors (like TimeoutError) and return None
             except Exception as nav_err:
                 print(f"[ERROR] Playwright Navigation Error for {url}: {nav_err}")
                 return None
@@ -125,9 +127,7 @@ def fetch_rendered_text(url: str) -> Optional[str]:
     text = "\n".join(line.strip() for line in raw_text.splitlines() if line.strip())
     return text
 
-# ============================================================
-# Extraction and Alerting
-# ============================================================
+# ... (Extraction and Alerting functions remain the same) ...
 
 def extract_apartment_ids(text: str, url: str) -> Set[str]:
     """
@@ -175,14 +175,14 @@ def send_ntfy_alert(url: str, message: str, priority: str = "3") -> None:
     if not NTFY_TOPIC_URL:
         print("[WARN] NTFY_TOPIC_URL not set. Alert skipped.")
         return
-    
+
     try:
         resp = requests.post(
             NTFY_TOPIC_URL,
             data=message.encode("utf-8"),
             headers={
                 "Title": f"Apartment Change: {url}",
-                "Tags": "house_with_garden",
+                "Tags": "house_with_garden" if priority == "3" else "warning",
                 "Priority": priority,
                 "X-Link": url,
             },
@@ -195,22 +195,50 @@ def send_ntfy_alert(url: str, message: str, priority: str = "3") -> None:
     except Exception as e:
         print(f"[ERROR] Sending ntfy alert for {url}: {e}")
 
+
 # ============================================================
-# Main
+# Main (UPDATED with Failure Tracking and Cooldown)
 # ============================================================
 
 def run_dynamic_once() -> None:
     apt_state = load_json(APT_STATE_FILE)
     text_state = load_json(TEXT_STATE_FILE)
+    
+    # 🟢 FIX: Load new state for failure and cooldown
+    failure_counts = load_json(FAILURE_FILE)
+    alert_cooldowns = load_json(ALERT_COOLDOWN_FILE)
 
     changed_any = False
+    current_time = time.time()
+    next_failure_counts = {}
 
     for url in DYNAMIC_URLS:
-        print(f"[INFO] Checking dynamic {url}")
         text = fetch_rendered_text(url)
+        
+        # 🟢 FIX: Implement Failure Tracking
         if not text:
+            count = int(failure_counts.get(url, 0)) + 1
+            next_failure_counts[url] = count
+            print(f"[FAIL] {url} failed to fetch ({count} consecutive times)")
+            
+            # Alert after 3 consecutive failures
+            if count >= 3:
+                # 🟢 FIX: Implement Notification Cooldown (2 hours for site down alerts)
+                last_alert = float(alert_cooldowns.get(url, 0))
+                if current_time - last_alert > 3600 * 2:
+                    send_ntfy_alert(
+                        url, 
+                        f"🚨 Dynamic Site down/unreachable for {count} consecutive checks (15 minutes of downtime).", 
+                        priority="4"
+                    )
+                    alert_cooldowns[url] = current_time
+                    changed_any = True
+            
             continue
 
+        # Site fetched successfully, reset failure count
+        next_failure_counts[url] = 0
+        
         new_apts = extract_apartment_ids(text, url)
         old_apts = set(apt_state.get(url, []))
 
@@ -229,14 +257,23 @@ def run_dynamic_once() -> None:
                 f"[CHANGE] {url}: +{len(added)} apartments, "
                 f"-{len(removed)} apartments"
             )
-            summary = format_apartment_changes(added, removed)
+            
+            # 🟢 FIX: Implement Cooldown for Content Change Alert (1 hour)
+            last_alert = float(alert_cooldowns.get(url, 0))
+            if current_time - last_alert < 3600:
+                 print(f"[COOLDOWN] Change detected for {url}, but skipping alert (last alerted < 1hr ago)")
+            else:
+                summary = format_apartment_changes(added, removed)
 
-            # High priority alert for new listings
-            if added:
-                send_ntfy_alert(url, summary, priority="5")
-            # Low priority alert for mass removals
-            elif len(removed) > 5:
-                send_ntfy_alert(url, summary, priority="2")
+                # High priority alert for new listings
+                if added:
+                    send_ntfy_alert(url, summary, priority="5")
+                # Low priority alert for mass removals
+                elif len(removed) > 5:
+                    send_ntfy_alert(url, summary, priority="2")
+                
+                alert_cooldowns[url] = current_time
+                changed_any = True
 
             apt_state[url] = sorted(new_apts)
             text_state[url] = text
@@ -244,6 +281,10 @@ def run_dynamic_once() -> None:
         else:
             print(f"[NOCHANGE] {url}")
 
+    # 🟢 FIX: Save all updated state files
+    save_json(FAILURE_FILE, next_failure_counts)
+    save_json(ALERT_COOLDOWN_FILE, alert_cooldowns)
+    
     if changed_any:
         save_json(APT_STATE_FILE, apt_state)
         save_json(TEXT_STATE_FILE, text_state)
