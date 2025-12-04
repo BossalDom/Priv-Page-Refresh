@@ -1,6 +1,4 @@
-# ... (rest of the file remains the same)
-
-      - name: Commit updated dynamic state
+- name: Commit updated dynamic state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
