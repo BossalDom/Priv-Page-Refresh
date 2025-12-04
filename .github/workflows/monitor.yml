@@ -8,7 +8,7 @@ on:
     types: [static-monitor]
 
 concurrency:
-  group: housing-monitor-all-v2  # 🟢 FIX: Unified concurrency group
+  group: housing-monitor-all-v2  # Unified concurrency group
   cancel-in-progress: false
 
 permissions:
@@ -17,7 +17,7 @@ permissions:
 jobs:
   check-sites:
     runs-on: ubuntu-latest
-    timeout-minutes: 15          # 🟢 FIX: Add workflow timeout
+    timeout-minutes: 15          # Add workflow timeout
 
     steps:
       - name: Checkout repo
