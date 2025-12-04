@@ -1,72 +1,24 @@
 {
-  "https://afny.org/re-rentals": [
-    "1100 Myrtle Avenue Apartments - 0825",
-    "1BR-Bronx-$1759",
-    "63 West Farms Road Apartments - 0925",
-    "Unit 408",
-    "Unit 6I"
-  ],
+  "https://afny.org/re-rentals": [],
   "https://ahgleasing.com/": [
     "451 Tenth Avenue Apartments"
   ],
-  "https://east-village-homes-owner-llc.rentcafewebsite.com/": [],
+  "https://east-village-homes-owner-llc.rentcafewebsite.com/": [
+    "unit"
+  ],
   "https://fifthave.org/re-rental-availabilities/": [
     "Unit 20F",
     "Unit 3F",
     "Unit 617"
   ],
-  "https://iaffordny.com/re-rentals": [
-    "113 Father Zeiser Place Apartments - 1025",
-    "1306 Findlay Avenue Apartments - 1025",
-    "131 Concord Street Apartments - 1025",
-    "1531 Nelson Avenue Apartments - 0725",
-    "1BR-Bronx-$113",
-    "1BR-Bronx-$1531",
-    "1BR-Bronx-$2783",
-    "1BR-Bronx-$3508",
-    "1BR-Bronx-$536",
-    "1BR-Brooklyn-$141",
-    "1BR-Brooklyn-$31",
-    "1BR-Brooklyn-$334",
-    "1BR-Brooklyn-$3506",
-    "1BR-Brooklyn-$3512",
-    "1BR-Brooklyn-$853",
-    "1BR-Manhattan-$320",
-    "1BR-Queens-$65",
-    "230 Classon Avenue Apartments - ",
-    "2BR-Bronx-$2744",
-    "2BR-Bronx-$629",
-    "2BR-Brooklyn-$131",
-    "2BR-Brooklyn-$1800",
-    "2BR-Brooklyn-$22",
-    "2BR-Brooklyn-$230",
-    "2BR-Brooklyn-$510",
-    "334 Evergreen Avenue Apartments 0825",
-    "3BR-Bronx-$950",
-    "3BR-Brooklyn-$461",
-    "912 Broadway Apartments - ",
-    "950 Ogden Avenue Apartments - 1025",
-    "UNIT 2I",
-    "UNIT 3R",
-    "UNIT 8E",
-    "Unit 1A",
-    "Unit 2B",
-    "Unit 2D",
-    "Unit 2F",
-    "Unit 33G",
-    "Unit 3C",
-    "Unit 3F",
-    "Unit 4B",
-    "Unit 4C",
-    "Unit 5A",
-    "Unit 6D"
-  ],
+  "https://iaffordny.com/re-rentals": [],
   "https://ibis.powerappsportals.com/": [
-    "1BR-Apartment\nBright-$1"
+    "unit"
   ],
   "https://mgnyconsulting.com/listings/": [
     "2010 Walton Avenue Apartments",
-    "Beach 101 Apartments"
+    "Avenue",
+    "Unit"
   ],
   "https://residenewyork.com/property-status/open-market/": [
     "076 Per Month\nView Property\nDunbar Apartments",
@@ -110,7 +62,10 @@
     "Unit 7A",
     "Unit 7C"
   ],
-  "https://riseboro.org/housing/woodlawn-senior-living/": [],
+  "https://riseboro.org/housing/woodlawn-senior-living/": [
+    "Unit",
+    "unit"
+  ],
   "https://sbmgmt.sitemanager.rentmanager.com/RECLAIMHDFC.aspx": [],
   "https://sites.google.com/affordablelivingnyc.com/hpd/home": [
     "Unit 39B"
@@ -135,8 +90,10 @@
     "980 Westchester Apartments 980"
   ],
   "https://www.prontohousingrentals.com/": [
-    "Unit 0670",
-    "Unit 0702"
+    "",
+    "Unit",
+    "unit"
   ],
-  "https://www.sjpny.com/affordable-rerentals": []
+  "https://www.sjpny.com/affordable-rerentals": [],
+  "https://www.rivertonsquare.com/available-rentals": []
 }
