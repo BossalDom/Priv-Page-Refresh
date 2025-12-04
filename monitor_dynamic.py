@@ -33,13 +33,14 @@ DYNAMIC_URLS: list[str] = [
 ]
 
 # ============================================================
-# Files and Config (UPDATED)
+# Files and Config (CORRECTED)
 # ============================================================
 
 APT_STATE_FILE = Path("dynamic_apartments.json")
 TEXT_STATE_FILE = Path("dynamic_texts.json")
-FAILURE_FILE = Path("dynamic_failures.json")             # 🟢 FIX: New file for dynamic failure count
-ALERT_COOLDOWN_FILE = Path("dynamic_last_alert.json")    # 🟢 FIX: New file for dynamic alert cooldown
+FAILURE_FILE = Path("dynamic_failures.json")
+# 🟢 CRITICAL: Kept for Site-Down Spam Prevention
+ALERT_COOLDOWN_FILE = Path("dynamic_last_alert.json") 
 
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL", "").strip()
 
@@ -78,7 +79,7 @@ def save_json(path: Path, data: Dict) -> None:
 
 
 # ============================================================
-# Playwright fetch (FIXED FOR TIMEOUT)
+# Playwright fetch
 # ============================================================
 
 def fetch_rendered_text(url: str) -> Optional[str]:
@@ -99,7 +100,7 @@ def fetch_rendered_text(url: str) -> Optional[str]:
             page = context.new_page()
 
             try:
-                # 🟢 FIX: Reduced timeout from 60s to 30s
+                # Playwright timeout is 30 seconds
                 page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 
                 # Wait 2 seconds for any immediate rendering
@@ -127,7 +128,9 @@ def fetch_rendered_text(url: str) -> Optional[str]:
     text = "\n".join(line.strip() for line in raw_text.splitlines() if line.strip())
     return text
 
-# ... (Extraction and Alerting functions remain the same) ...
+# ============================================================
+# Extraction and Alerting
+# ============================================================
 
 def extract_apartment_ids(text: str, url: str) -> Set[str]:
     """
@@ -135,7 +138,6 @@ def extract_apartment_ids(text: str, url: str) -> Set[str]:
     """
     # Regex 1: Highly dynamic sites (iAfford, AFNY) looking for full listing strings
     if url in ["https://iaffordny.com/re-rentals", "https://afny.org/re-rentals"]:
-        # Find lines like "555 Waverly Avenue- Multiple Units 0825 Rent:2081"
         pattern = re.compile(r"(\d+ [A-Z].*?Rent:[\s\$]*[\d,]+)", re.MULTILINE | re.IGNORECASE)
     
     # Regex 2: RentCafe and sites that list unit/apt/address
@@ -197,16 +199,16 @@ def send_ntfy_alert(url: str, message: str, priority: str = "3") -> None:
 
 
 # ============================================================
-# Main (UPDATED with Failure Tracking and Cooldown)
+# Main (UPDATED: Content Change Cooldown Removed, Failure Cooldown Kept)
 # ============================================================
 
 def run_dynamic_once() -> None:
     apt_state = load_json(APT_STATE_FILE)
     text_state = load_json(TEXT_STATE_FILE)
     
-    # 🟢 FIX: Load new state for failure and cooldown
+    # Load new state for failure and cooldown
     failure_counts = load_json(FAILURE_FILE)
-    alert_cooldowns = load_json(ALERT_COOLDOWN_FILE)
+    alert_cooldowns = load_json(ALERT_COOLDOWN_FILE) # Needed for site-down cooldown
 
     changed_any = False
     current_time = time.time()
@@ -215,7 +217,7 @@ def run_dynamic_once() -> None:
     for url in DYNAMIC_URLS:
         text = fetch_rendered_text(url)
         
-        # 🟢 FIX: Implement Failure Tracking
+        # Implement Failure Tracking
         if not text:
             count = int(failure_counts.get(url, 0)) + 1
             next_failure_counts[url] = count
@@ -223,7 +225,7 @@ def run_dynamic_once() -> None:
             
             # Alert after 3 consecutive failures
             if count >= 3:
-                # 🟢 FIX: Implement Notification Cooldown (2 hours for site down alerts)
+                # KEEPING SITE-DOWN ALERT COOLDOWN (2 hours) to prevent spam
                 last_alert = float(alert_cooldowns.get(url, 0))
                 if current_time - last_alert > 3600 * 2:
                     send_ntfy_alert(
@@ -258,22 +260,18 @@ def run_dynamic_once() -> None:
                 f"-{len(removed)} apartments"
             )
             
-            # 🟢 FIX: Implement Cooldown for Content Change Alert (1 hour)
-            last_alert = float(alert_cooldowns.get(url, 0))
-            if current_time - last_alert < 3600:
-                 print(f"[COOLDOWN] Change detected for {url}, but skipping alert (last alerted < 1hr ago)")
-            else:
-                summary = format_apartment_changes(added, removed)
+            # REMOVED COOLDOWN LOGIC - Always send alerts
+            summary = format_apartment_changes(added, removed)
 
-                # High priority alert for new listings
-                if added:
-                    send_ntfy_alert(url, summary, priority="5")
-                # Low priority alert for mass removals
-                elif len(removed) > 5:
-                    send_ntfy_alert(url, summary, priority="2")
-                
-                alert_cooldowns[url] = current_time
-                changed_any = True
+            # High priority alert for new listings
+            if added:
+                send_ntfy_alert(url, summary, priority="5")
+            # Low priority alert for mass removals
+            elif len(removed) > 5:
+                send_ntfy_alert(url, summary, priority="2")
+            
+            # Update the cooldown file time on successful change to reset site-down timer
+            alert_cooldowns[url] = current_time 
 
             apt_state[url] = sorted(new_apts)
             text_state[url] = text
@@ -281,9 +279,9 @@ def run_dynamic_once() -> None:
         else:
             print(f"[NOCHANGE] {url}")
 
-    # 🟢 FIX: Save all updated state files
+    # Save all updated state files
     save_json(FAILURE_FILE, next_failure_counts)
-    save_json(ALERT_COOLDOWN_FILE, alert_cooldowns)
+    save_json(ALERT_COOLDOWN_FILE, alert_cooldowns) 
     
     if changed_any:
         save_json(APT_STATE_FILE, apt_state)
