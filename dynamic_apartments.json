@@ -13,7 +13,11 @@
   ],
   "https://iaffordny.com/re-rentals": [],
   "https://ibis.powerappsportals.com/": [],
-  "https://mgnyconsulting.com/listings/": [],
+  "https://mgnyconsulting.com/listings/": [
+    "2010 Walton Avenue Apartments",
+    "Avenue",
+    "Unit"
+  ],
   "https://residenewyork.com/property-status/open-market/": [
     "076 Per Month\nView Property\nDunbar Apartments",
     "1134 Fulton Street Apartment",
