@@ -39,29 +39,37 @@ jobs:
           NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
         run: python monitor.py
 
-      - name: Commit updated state
-        if: ${{ github.ref == 'refs/heads/main' }}
+            - name: Commit updated state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          CHANGED="$(git status --porcelain '*.json' || true)"
-          if [ -z "$CHANGED" ]; then
-            echo "No JSON state changes to commit."
-            exit 0
+          if [[ -n "$(git status --porcelain '*.json')" ]]; then
+            echo "State files changed, committing..."
+
+            for i in {1..5}; do
+              if ! git pull --rebase origin main; then
+                echo "Pull failed, attempting to resolve state file conflicts..."
+
+                if [ -d ".git/rebase-apply" ] || [ -d ".git/rebase-merge" ]; then
+                  git checkout --ours *.json || true
+                  git add *.json
+                  git rebase --continue || true
+                fi
+              fi
+
+              git add *.json
+              git commit -m "Update monitor state [skip ci]" || echo "Nothing new to commit"
+
+              if git push origin HEAD:main; then
+                echo "State committed successfully"
+                exit 0
+              fi
+
+              echo "Push failed, retrying ($i/5)..."
+              sleep $((i * 2))
+            done
+
+            echo "ERROR: Failed to push state after 5 attempts"
+            exit 1
           fi
-
-          git add *.json
-          git commit -m "Update static monitor state [skip ci]" || exit 0
-
-          for i in 1 2 3; do
-            if git push origin HEAD:main; then
-              echo "State committed."
-              exit 0
-            fi
-            echo "Push failed - retry $i"
-            sleep $((i * 2))
-          done
-
-          echo "Final push failed."
-          exit 1
