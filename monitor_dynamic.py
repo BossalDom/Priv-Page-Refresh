@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Dynamic housing monitor.
+Dynamic site monitor.
 
-Targets pages that list apartments (iafford, AFNY, Reside, MGNY, etc),
-extracts a stable set of "apartment ids", and sends an ntfy alert when
-the set changes (new listings added or existing ones removed).
+Uses Playwright to render JavaScript heavy pages, extracts apartment-like
+identifiers, compares them to previous runs, and sends ntfy alerts only
+when apartments are added or removed.
 
 Relies on env:
-    NTFY_TOPIC_URL   – ntfy topic URL
-    DEBUG            – "true" to print extra logs
+    NTFY_TOPIC_URL   - ntfy topic URL
+    DEBUG            - "true" for extra logging
 """
 
 from __future__ import annotations
@@ -27,43 +27,19 @@ import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
-# ---------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------
-
 ROOT = Path(__file__).parent
 
-APT_STATE_FILE = ROOT / "dynamic_apartments.json"
-TEXT_STATE_FILE = ROOT / "dynamic_texts.json"
+TEXT_FILE = ROOT / "dynamic_texts.json"
+APT_FILE = ROOT / "dynamic_apartments.json"
 
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL", "").strip()
 DEBUG = os.environ.get("DEBUG", "").lower() == "true"
 
-WEB_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-}
-
-DYNAMIC_URLS = [
-    # Core listing pages
-    "https://iaffordny.com/re-rentals",
-    "https://afny.org/re-rentals",
-    "https://residenewyork.com/property-status/open-market/",
-    "https://mgnyconsulting.com/listings/",
-    # JS-heavy / portal pages
-    "https://city5.nyc/",
-    "https://ibis.powerappsportals.com/",
-    "https://east-village-homes-owner-llc.rentcafewebsite.com/",
-    # Add more apartment-listing URLs here
-]
-
-# ---------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------
+WEB_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
 
 
 def debug_print(msg: str) -> None:
@@ -83,7 +59,7 @@ def load_json(path: Path) -> Dict[str, object]:
 
 
 def save_json(path: Path, data: Dict[str, object]) -> None:
-    """Atomic JSON write to avoid corrupting state on crashes."""
+    """Atomic JSON write to avoid corrupt state."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
@@ -108,68 +84,20 @@ def normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-# ---------------------------------------------------------------------
-# Content filters for specific sites
-# ---------------------------------------------------------------------
-
-
-def filter_resideny_open_market(text: str) -> str:
-    marker = "Open Market"
-    idx = text.find(marker)
-    if idx != -1:
-        return text[idx:]
-    return text
-
-
-def filter_mgny(text: str) -> str:
-    marker = "Listings"
-    idx = text.find(marker)
-    if idx != -1:
-        return text[idx:]
-    return text
-
-
-CONTENT_FILTERS = {
-    "https://residenewyork.com/property-status/open-market/": filter_resideny_open_market,
-    "https://mgnyconsulting.com/listings/": filter_mgny,
-}
-
-
-def apply_content_filters(url: str, text: str) -> str:
-    fn = CONTENT_FILTERS.get(url)
-    if fn:
-        text = fn(text)
-    return text
-
-
-# ---------------------------------------------------------------------
-# Playwright fetch
-# ---------------------------------------------------------------------
-
-
-def fetch_rendered_text(url: str, max_retries: int = 2) -> Optional[str]:
-    """
-    Use Playwright to render the page.
-
-    Retries with increasing timeouts for heavier JS sites.
-    """
-    html: Optional[str] = None
-
+def fetch_rendered_html(url: str, max_retries: int = 2) -> Optional[str]:
+    """Render a page with Playwright and return HTML or None."""
     for attempt in range(max_retries + 1):
-        delay = random.uniform(2, 5)
-        print(
-            f"[INFO] Waiting {delay:.1f}s before fetching {url} "
-            f"(attempt {attempt + 1})"
-        )
-        time.sleep(delay)
+        timeout = 45000 + attempt * 15000
+        jitter = random.uniform(2, 5)
+        time.sleep(jitter)
 
-        timeout = 45000 + attempt * 15000  # 45 s, 60 s, 75 s
+        debug_print(f"[dynamic] Fetch attempt {attempt + 1} for {url}, timeout {timeout} ms")
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             context = browser.new_context(
-                user_agent=WEB_HEADERS["User-Agent"],
-                viewport={"width": 1920, "height": 1080},
+                user_agent=WEB_USER_AGENT,
+                viewport={"width": 1200, "height": 900},
                 locale="en-US",
             )
             page = context.new_page()
@@ -177,22 +105,27 @@ def fetch_rendered_text(url: str, max_retries: int = 2) -> Optional[str]:
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=timeout)
                 page.wait_for_timeout(5000 + attempt * 2000)
+
                 html = page.content()
+                if "forbidden" in html.lower() or "access denied" in html.lower():
+                    raise RuntimeError("Site blocking detected")
+
                 browser.close()
-                break
+                debug_print(f"[dynamic] HTML length for {url}: {len(html)}")
+                return html
             except Exception as e:
                 print(f"[WARN] Attempt {attempt + 1} failed for {url}: {e}")
                 browser.close()
                 if attempt < max_retries:
                     time.sleep(5)
                 else:
-                    return None
+                    print(f"[ERROR] Giving up on {url} after {attempt + 1} attempts")
+    return None
 
-    if not html:
-        return None
 
-    if "forbidden" in html.lower() or "access denied" in html.lower():
-        print(f"[WARN] {url} appears blocked when fetching")
+def fetch_rendered_text(url: str) -> Optional[str]:
+    html = fetch_rendered_html(url)
+    if html is None:
         return None
 
     soup = BeautifulSoup(html, "html.parser")
@@ -201,45 +134,64 @@ def fetch_rendered_text(url: str, max_retries: int = 2) -> Optional[str]:
 
     lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
     text = "\n".join(lines)
-    text = apply_content_filters(url, text)
     text = normalize_whitespace(text)
-    debug_print(f"[dynamic] Filtered text length for {url}: {len(text)}")
 
+    debug_print(f"[dynamic] Normalized text length for {url}: {len(text)}")
+    debug_print(f"[dynamic] Sample for {url}: {text[:300]}")
     return text
 
 
+def is_valid_apartment_id(apt_id: str) -> bool:
+    """Filter out obvious noise."""
+    if not apt_id:
+        return False
+
+    if not re.search(r"\d", apt_id):
+        return False
+
+    if len(apt_id) > 160:
+        return False
+
+    noise_words = [
+        "cookie",
+        "privacy",
+        "terms",
+        "copyright",
+        "menu",
+        "login",
+        "sign up",
+        "subscribe",
+        "newsletter",
+    ]
+    lowered = apt_id.lower()
+    if any(word in lowered for word in noise_words):
+        return False
+
+    return True
+
+
 # ---------------------------------------------------------------------
-# Apartment-id extraction
+# Site specific extractors
 # ---------------------------------------------------------------------
 
 
 def extract_ids_iafford_afny(text: str) -> Set[str]:
     """
-    iafford and AFNY patterns.
-
-    These sites usually show listings as lines like:
-
-        'The Urban 144-74 Northern Boulevard -Multiple Units Rent: $2,104.89'
-        '3508 Tryon Avenue Unit 6D 1125 Rent: $1,680'
-
-    We treat everything up to 'Rent:' as the stable identifier and
-    strip a few volatile suffixes.
+    iafford and AFNY show buildings as lines that end before 'Rent:'.
+    We use the portion before 'Rent:' as the ID and only strip a trailing
+    four digit code like '0825'. We keep 'Multiple Units' and 'Unit 3F'.
     """
     apartments: Set[str] = set()
 
     pattern = re.compile(
-        r"(?:^|\n)([A-Z][^\n]+?)\s+Rent:\s*\$[\d,]+",
+        r"(?:^|\n)([A-Z][^\n]+?)\s+Rent:",
         re.MULTILINE,
     )
 
     for match in pattern.finditer(text):
         name = match.group(1).strip()
-        # Strip some noisy endings
-        name = re.sub(
-            r"\s+(Multiple Units|Unit\s+\w+|\d{4})$",
-            "",
-            name,
-        ).strip()
+        # Remove trailing 4 digit codes, keep other descriptors
+        name = re.sub(r"\s+\d{4}$", "", name).strip()
         apartments.add(name)
 
     debug_print(f"[dynamic] iafford/afny buildings: {len(apartments)}")
@@ -248,61 +200,54 @@ def extract_ids_iafford_afny(text: str) -> Set[str]:
 
 def extract_ids_reside(text: str) -> Set[str]:
     """
-    Reside New York open market page.
-
-    We look for lines that clearly combine building + 'Unit'.
+    Reside NY: use building names on the open market page.
     """
     apartments: Set[str] = set()
 
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        # crude but effective: building name + 'Unit'
-        if "Apartments" in line and "Unit" in line:
-            apartments.add(line)
+    pattern = re.compile(
+        r"(\d+\s+[A-Z][A-Za-z0-9 .,'-]+?)(?:\s+Apartments|\s+-|\s+Unit\b)",
+    )
 
-    debug_print(f"[dynamic] ResideNY: {len(apartments)}")
+    for match in pattern.finditer(text):
+        name = match.group(1).strip()
+        apartments.add(name)
+
+    debug_print(f"[dynamic] ResideNY ids: {len(apartments)}")
     return apartments
 
 
 def extract_ids_mgny(text: str) -> Set[str]:
     """
-    MGNY consulting listings.
-
-    We treat each line that looks like '123 Main Street Apartments'
-    or includes 'Unit' as a separate id.
+    MGNY Listings: '2010 Walton Avenue Apartments' style.
     """
     apartments: Set[str] = set()
 
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if "Apartments" in line or "Apartment" in line:
-            apartments.add(line)
-        elif re.search(r"\bUnit\b", line):
-            apartments.add(line)
+    pattern = re.compile(
+        r"(\d+\s+[A-Z][A-Za-z0-9 .,'-]+?\s+Apartments)",
+    )
 
-    debug_print(f"[dynamic] MGNY: {len(apartments)}")
+    for match in pattern.finditer(text):
+        name = match.group(1).strip()
+        apartments.add(name)
+
+    debug_print(f"[dynamic] MGNY ids: {len(apartments)}")
     return apartments
 
 
 def extract_ids_generic(text: str) -> Set[str]:
     """
-    Fallback extraction: lines with obvious rental keywords.
+    Generic fallback for sites we have not tuned yet.
+    Tries to pull out address-like strings that contain numbers plus a name.
     """
     apartments: Set[str] = set()
 
-    for line in text.splitlines():
-        s = line.strip()
-        if not s:
-            continue
-        if any(
-            kw in s.lower()
-            for kw in ("unit", "apartment", "apt", "bedroom", "studio", "rent")
-        ):
-            apartments.add(s)
+    for match in re.finditer(
+        r"\b(\d+\s+[A-Z][A-Za-z0-9 .,'-]+?)\b.*?\$\s*([\d,]+)",
+        text,
+    ):
+        address, rent = match.groups()
+        rent_clean = rent.replace(",", "")
+        apartments.add(f"{address} ${rent_clean}")
 
     debug_print(f"[dynamic] generic ids: {len(apartments)}")
     return apartments
@@ -318,86 +263,61 @@ SITE_EXTRACTORS = {
 
 def extract_apartment_ids(text: str, url: str) -> Set[str]:
     url_lower = url.lower()
-    for domain, func in SITE_EXTRACTORS.items():
+    for domain, extractor in SITE_EXTRACTORS.items():
         if domain in url_lower:
-            return func(text)
-    return extract_ids_generic(text)
+            ids = extractor(text)
+            debug_print(
+                f"[dynamic] extractor {extractor.__name__} for {url} produced {len(ids)} raw ids"
+            )
+            return ids
+
+    ids = extract_ids_generic(text)
+    debug_print(f"[dynamic] extractor generic for {url} produced {len(ids)} raw ids")
+    return ids
 
 
-def is_valid_apartment_id(apt_id: str) -> bool:
-    """
-    Sanity-check extracted ids so nav/footer junk does not count as apartments.
-    """
-    # Needs at least one digit (address or unit)
-    if not re.search(r"\d", apt_id):
-        return False
-
-    if len(apt_id) > 160:
-        return False
-
-    noise_words = [
-        "cookie",
-        "privacy",
-        "terms",
-        "copyright",
-        "menu",
-        "login",
-        "sign up",
-        "newsletter",
-    ]
-    lower = apt_id.lower()
-    if any(w in lower for w in noise_words):
-        return False
-
-    return True
-
-
-# ---------------------------------------------------------------------
-# Diff + ntfy
-# ---------------------------------------------------------------------
-
-
-def format_apartment_changes(
-    added: Set[str],
-    removed: Set[str],
-    max_added: int = 10,
-    max_removed: int = 5,
-) -> Optional[str]:
+def format_apartment_changes(added: Set[str], removed: Set[str]) -> Optional[str]:
     if not added and not removed:
         return None
 
     parts = []
 
     if added:
-        parts.append("NEW LISTINGS:")
-        for apt in sorted(added)[:max_added]:
-            parts.append(f"  • {apt}")
-        if len(added) > max_added:
-            parts.append(f"  • ... and {len(added) - max_added} more")
+        parts.append("New apartments detected:")
+        for apt in sorted(added)[:10]:
+            parts.append(f"  + {apt}")
+        if len(added) > 10:
+            parts.append(f"  ... and {len(added) - 10} more")
 
     if removed:
         parts.append("")
-        parts.append("REMOVED:")
-        for apt in sorted(removed)[:max_removed]:
-            parts.append(f"  • {apt}")
-        if len(removed) > max_removed:
-            parts.append(f"  • ... and {len(removed) - max_removed} more")
+        parts.append("Apartments removed:")
+        for apt in sorted(removed)[:5]:
+            parts.append(f"  - {apt}")
+        if len(removed) > 5:
+            parts.append(f"  ... and {len(removed) - 5} more")
 
-    return "\n".join(parts).strip() or None
+    summary = "\n".join(parts)
+    if not summary.strip():
+        return None
+
+    return summary
 
 
-def send_ntfy_alert(url: str, diff_summary: str) -> None:
-    if not NTFY_TOPIC_URL:
-        print("[WARN] NTFY_TOPIC_URL not set – would have sent alert")
-        print(diff_summary)
+def send_ntfy_alert(url: str, summary: str, priority: str = "4") -> None:
+    if not summary:
+        print(f"[INFO] No summary content for {url}, no alert sent")
         return
 
-    body = f"{url}\n\n{diff_summary}"
+    if not NTFY_TOPIC_URL:
+        print("[WARN] NTFY_TOPIC_URL not set, would have sent:")
+        print(summary)
+        return
 
+    body = f"{url}\n\n{summary}"
     headers = {
-        # ASCII only, to avoid latin-1 header encoding failures
-        "Title": "New housing listings",
-        "Priority": "4",
+        "Title": "Housing listings updated",
+        "Priority": priority,
         "Tags": "housing,monitor",
         "Click": url,
     }
@@ -410,29 +330,51 @@ def send_ntfy_alert(url: str, diff_summary: str) -> None:
             timeout=20,
         )
         if 200 <= resp.status_code < 300:
-            print(f"[OK] Alert sent for {url}")
+            print(f"[OK] ntfy alert sent for {url}")
         else:
             print(f"[ERROR] ntfy returned {resp.status_code} for {url}")
     except Exception as e:
         print(f"[ERROR] Sending ntfy alert for {url}: {e}")
 
 
-# ---------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------
+DYNAMIC_URLS = [
+    "https://www.nyc.gov/site/hpd/services-and-information/find-affordable-housing-re-rentals.page",
+    "https://afny.org/re-rentals",
+    "https://cgmrcompliance.com/housing-opportunities-1",
+    "https://city5.nyc/",
+    "https://www.clintonmanagement.com/availabilities/affordable/",
+    "https://fifthave.org/re-rental-availabilities/",
+    "https://iaffordny.com/re-rentals",
+    "https://ihrerentals.com/",
+    "https://ibis.powerappsportals.com/",
+    "https://kgupright.com/",
+    "https://www.langsampropertyservices.com/affordable-rental-opportunities",
+    "https://mgnyconsulting.com/listings/",
+    "https://www.mickigarciarealty.com/",
+    "https://www.prontohousingrentals.com/",
+    "https://sbmgmt.sitemanager.rentmanager.com/RECLAIMHDFC.aspx",
+    "https://ahgleasing.com/",
+    "https://residenewyork.com/property-status/open-market/",
+    "https://riseboro.org/housing/woodlawn-senior-living/",
+    "https://streeteasy.com/building/riverton-square",
+    "https://www.sjpny.com/affordable-rerentals",
+    "https://soisrealestateconsulting.com/current-projects-1",
+    "https://springmanagement.net/apartments-for-rent/",
+    "https://east-village-homes-owner-llc.rentcafewebsite.com/",
+    "https://sites.google.com/affordablelivingnyc.com/hpd/home",
+    "https://www.taxaceny.com/projects-8",
+    "https://tfc.com/about/affordable-re-rentals",
+    "https://www.thebridgeny.org/news-and-media",
+    "https://wavecrestrentals.com/section.php?id=1",
+    "https://yourneighborhoodhousing.com/",
+]
 
 
 def run_dynamic_once() -> None:
-    apt_state_raw = load_json(APT_STATE_FILE)
-    text_state_raw = load_json(TEXT_STATE_FILE)
+    text_state = load_json(TEXT_FILE)
+    apt_state_raw = load_json(APT_FILE)
 
-    # ensure dict[str, list[str]]
-    apt_state: Dict[str, list] = {
-        k: list(v) if isinstance(v, list) else [] for k, v in apt_state_raw.items()
-    }
-    text_state: Dict[str, str] = {
-        k: str(v) for k, v in text_state_raw.items()
-    }
+    apt_state: Dict[str, list] = {k: list(v) for k, v in apt_state_raw.items()}
 
     changed_any = False
 
@@ -440,23 +382,23 @@ def run_dynamic_once() -> None:
         print(f"[INFO] Checking dynamic site {url}")
         text = fetch_rendered_text(url)
         if text is None:
-            print(f"[WARN] No text extracted for {url}")
             continue
 
-        new_apartments = extract_apartment_ids(text, url)
-        new_apartments = {a for a in new_apartments if is_valid_apartment_id(a)}
-        debug_print(
-            f"[dynamic] {url} final apartment count after validation: "
-            f"{len(new_apartments)}"
-        )
+        new_apartments_raw = extract_apartment_ids(text, url)
+        new_apartments = {a for a in new_apartments_raw if is_valid_apartment_id(a)}
+
+        if not new_apartments and ("rent" in text.lower() or "apartment" in text.lower()):
+            print(
+                f"[WARN] {url} appears to have rental content but extracted 0 apartments. "
+                "Extractor or validation may be too strict."
+            )
+            debug_print(f"[dynamic] text sample for {url}: {text[:500]}")
 
         old_list = apt_state.get(url, [])
         old_apartments = set(old_list)
 
         if not old_apartments:
-            print(
-                f"[INIT] Recording {len(new_apartments)} apartments for baseline on {url}"
-            )
+            print(f"[INIT] Baseline apartment set for {url}: {len(new_apartments)} units")
             apt_state[url] = sorted(new_apartments)
             text_state[url] = text
             changed_any = True
@@ -466,34 +408,27 @@ def run_dynamic_once() -> None:
         removed = old_apartments - new_apartments
 
         if not added and not removed:
-            print(f"[NOCHANGE] {url} – apartments unchanged")
+            print(f"[NOCHANGE] {url} - same apartment set")
             continue
 
-        print(
-            f"[CHANGE] {url}: +{len(added)} apartments, "
-            f"-{len(removed)} apartments"
-        )
+        print(f"[CHANGE] {url}: +{len(added)} / -{len(removed)}")
 
-        if added:
-            print(f"  Added sample: {list(added)[:3]}")
-        if removed:
-            print(f"  Removed sample: {list(removed)[:3]}")
+        summary = format_apartment_changes(added, removed)
 
-        diff_summary = format_apartment_changes(added, removed)
-
-        # To reduce noise, only send alert when there is at least one new listing
-        if added and diff_summary:
-            send_ntfy_alert(url, diff_summary)
+        if added and summary:
+            send_ntfy_alert(url, summary, priority="4")
+        elif len(removed) > 5 and summary:
+            send_ntfy_alert(url, summary, priority="2")
 
         apt_state[url] = sorted(new_apartments)
         text_state[url] = text
         changed_any = True
 
     if changed_any:
-        save_json(APT_STATE_FILE, apt_state)
-        save_json(TEXT_STATE_FILE, text_state)
+        save_json(APT_FILE, apt_state)
+        save_json(TEXT_FILE, text_state)
     else:
-        print("[INFO] No dynamic state changes to save.")
+        print("[INFO] No dynamic changes to save.")
 
 
 if __name__ == "__main__":
