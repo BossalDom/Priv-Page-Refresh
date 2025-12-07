@@ -2,12 +2,9 @@
 """
 Static site monitor.
 
-Checks a list of URLs, captures cleaned text, compares to the last
-version, and sends an ntfy alert if there is a meaningful change.
-
-Relies on env:
-    NTFY_TOPIC_URL   – ntfy topic URL
-    DEBUG            – "true" to print extra logs
+You can use this if you later want to track non listing pages where
+any text change is important. For now STATIC_URLS is empty because
+all housing listing pages are handled in monitor_dynamic.py.
 """
 
 from __future__ import annotations
@@ -18,16 +15,11 @@ import os
 import re
 import tempfile
 import shutil
-import time
 from pathlib import Path
 from typing import Dict, Optional
 
 import requests
 from bs4 import BeautifulSoup
-
-# ---------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------
 
 ROOT = Path(__file__).parent
 
@@ -37,7 +29,6 @@ TEXT_FILE = ROOT / "page_texts.json"
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL", "").strip()
 DEBUG = os.environ.get("DEBUG", "").lower() == "true"
 
-# How aggressively to filter small diffs
 MIN_DIFF_CHARS = 120
 MIN_DIFF_SNIPPETS = 1
 
@@ -50,19 +41,7 @@ WEB_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-# IMPORTANT: put only non-listing pages here.
-# Apartment listing pages belong in monitor_dynamic.py.
-STATIC_URLS = [
-    "https://www.spjny.com/affordable-rentals",
-    "https://sites.google.com/affordablelivingnyc.com/hpd/home",
-    "https://www.thebridgeny.org/news-and-media",
-    "https://www.taxaceny.com/projects-8",
-    # Add or remove static (non-listing) pages as needed
-]
-
-# ---------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------
+STATIC_URLS: list[str] = []
 
 
 def debug_print(msg: str) -> None:
@@ -82,7 +61,6 @@ def load_json(path: Path) -> Dict[str, object]:
 
 
 def save_json(path: Path, data: Dict[str, object]) -> None:
-    """Atomic JSON write to avoid corrupting state on crashes."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
@@ -100,7 +78,6 @@ def save_json(path: Path, data: Dict[str, object]) -> None:
             if "tmp_path" in locals() and tmp_path.exists():
                 tmp_path.unlink()
         except Exception:
-        # nothing else to do
             pass
 
 
@@ -112,37 +89,6 @@ def hash_text(text: str) -> str:
     import hashlib
 
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-# ---------------------------------------------------------------------
-# Content filtering
-# ---------------------------------------------------------------------
-
-
-def filter_reside_google(text: str) -> str:
-    """Example filter for HPD Google Site – skip nav if needed."""
-    marker = "Affordable Housing"
-    idx = text.find(marker)
-    if idx != -1:
-        return text[idx:]
-    return text
-
-
-CONTENT_FILTERS = {
-    "https://sites.google.com/affordablelivingnyc.com/hpd/home": filter_reside_google,
-}
-
-
-def apply_content_filters(url: str, text: str) -> str:
-    func = CONTENT_FILTERS.get(url)
-    if func:
-        text = func(text)
-    return text
-
-
-# ---------------------------------------------------------------------
-# Network / diff / ntfy
-# ---------------------------------------------------------------------
 
 
 def fetch_page_text(url: str) -> Optional[str]:
@@ -160,7 +106,6 @@ def fetch_page_text(url: str) -> Optional[str]:
 
     lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
     text = "\n".join(lines)
-    text = apply_content_filters(url, text)
     text = normalize_whitespace(text)
 
     debug_print(f"Normalized length for {url}: {len(text)}")
@@ -174,12 +119,6 @@ def summarize_diff(
     context_chars: int = 120,
     max_chars: int = 1500,
 ) -> Optional[str]:
-    """
-    Summarize change between two versions.
-
-    If the change is too small or uninformative, return None so
-    no alert is sent.
-    """
     sm = difflib.SequenceMatcher(None, old_text, new_text)
     additions = []
     removals = []
@@ -205,7 +144,6 @@ def summarize_diff(
     if len(snippets) < max_snippets:
         snippets.extend(removals[: max_snippets - len(snippets)])
 
-    # Remove empty snippets
     snippets = [s.strip() for s in snippets if s.strip()]
     if not snippets:
         return None
@@ -214,7 +152,6 @@ def summarize_diff(
     if len(summary) > max_chars:
         summary = summary[:max_chars] + "\n\n[...truncated]"
 
-    # Ignore tiny diffs
     if len(summary) < MIN_DIFF_CHARS and len(snippets) < MIN_DIFF_SNIPPETS:
         return None
 
@@ -223,14 +160,13 @@ def summarize_diff(
 
 def send_ntfy_alert(url: str, diff_summary: str) -> None:
     if not NTFY_TOPIC_URL:
-        print("[WARN] NTFY_TOPIC_URL not set – would have sent alert")
+        print("[WARN] NTFY_TOPIC_URL not set - would have sent alert")
         print(diff_summary)
         return
 
     body = f"Static site change detected:\n{url}\n\n{diff_summary}"
 
     headers = {
-        # ASCII only to avoid latin-1 header errors
         "Title": f"Static Site Change: {url}",
         "Priority": "3",
         "Tags": "static,monitor",
@@ -251,12 +187,11 @@ def send_ntfy_alert(url: str, diff_summary: str) -> None:
         print(f"[ERROR] Sending ntfy alert for {url}: {e}")
 
 
-# ---------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------
-
-
 def run_static_once() -> None:
+    if not STATIC_URLS:
+        print("[INFO] No STATIC_URLS configured. Nothing to do.")
+        return
+
     hash_state = load_json(HASH_FILE)
     text_state = load_json(TEXT_FILE)
 
