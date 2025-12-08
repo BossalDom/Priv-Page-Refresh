@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: dynamic-housing-monitor
-  cancel-in-progress: true  # Changed to true to cancel duplicate runs
+  cancel-in-progress: false  # Let runs complete - no spam
 
 jobs:
   check-dynamic-sites:
@@ -44,35 +44,15 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           if [[ -n "$(git status --porcelain | grep 'dynamic_.*\.json' || true)" ]]; then
-            echo "Dynamic state files changed, committing..."
-
-            # Step 1: Commit local changes FIRST
             git add dynamic_*.json
             git commit -m "Update dynamic monitor state [skip ci]" || true
-
-            # Step 2: Pull and rebase
-            for i in {1..5}; do
-              if ! git pull --rebase origin main; then
-                echo "Pull failed, resolving conflicts"
-                if [ -d ".git/rebase-apply" ] || [ -d ".git/rebase-merge" ]; then
-                  git checkout --ours dynamic_*.json || true
-                  git add dynamic_*.json
-                  git rebase --continue || true
-                fi
-              fi
-
-              # Step 3: Push
+            
+            for i in {1..3}; do
+              git pull --rebase origin main || true
               if git push origin HEAD:main; then
-                echo "Dynamic state committed successfully"
                 exit 0
               fi
-
-              echo "Push failed, retrying (${i}/5)..."
-              sleep $((i * 2))
+              sleep 2
             done
-
-            echo "ERROR: Failed to push dynamic state after 5 attempts"
             exit 1
-          else
-            echo "No dynamic JSON changes to commit"
           fi
