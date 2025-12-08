@@ -11,8 +11,7 @@
     "10065 1800 Ocean Avenue",
     "103-41 120 STREET",
     "103-41 120th Street Unit 3B",
-    "10452 1306 Findlay Avenue",
-    "10456 853 Lexington Avenue",
+    "10452 853 Lexington Avenue",
     "10458 912 Broad",
     "10467 113 Father Zeiser Place",
     "10467 334 EVERGREEN AVENUE",
@@ -31,7 +30,6 @@
     "11377 1531 Nelson Avenue",
     "11419 31 Lincoln Road",
     "1286 New York Avenue Unit 6B",
-    "1306 Findlay Avenue",
     "131 Concord Street",
     "141 UTICA AVENUE Unit 3R",
     "144-74 NORTHERN BOULEVARD",
@@ -112,7 +110,10 @@
   "https://www.langsampropertyservices.com/affordable-rental-opportunities": [
     "603 Pontiac Place Unit 3C"
   ],
-  "https://springmanagement.net/apartments-for-rent/": [],
+  "https://springmanagement.net/apartments-for-rent/": [
+    "1488 New York Avenue",
+    "321 E 60th Street"
+  ],
   "https://sbmgmt.sitemanager.rentmanager.com/RECLAIMHDFC.aspx": [
     "1821 University Avenue",
     "1982 University Avenue",
