@@ -1,15 +1,13 @@
 name: Website monitor
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"        # every 5 minutes
   workflow_dispatch:
   repository_dispatch:
     types: [static-monitor]
 
 concurrency:
   group: static-housing-monitor
-  cancel-in-progress: false
+  cancel-in-progress: true  # Changed to true to cancel duplicate runs
 
 jobs:
   check-sites:
@@ -41,14 +39,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Only commit static state files (page_*.json)
           if [[ -n "$(git status --porcelain | grep 'page_.*\.json' || true)" ]]; then
             echo "Static state files changed, committing..."
 
+            # Step 1: Commit local changes FIRST
+            git add page_*.json
+            git commit -m "Update static monitor state [skip ci]" || true
+
+            # Step 2: Pull and rebase
             for i in {1..5}; do
               if ! git pull --rebase origin main; then
-                echo "Pull failed, trying to resolve page_*.json conflicts"
-
+                echo "Pull failed, resolving conflicts"
                 if [ -d ".git/rebase-apply" ] || [ -d ".git/rebase-merge" ]; then
                   git checkout --ours page_*.json || true
                   git add page_*.json
@@ -56,9 +57,7 @@ jobs:
                 fi
               fi
 
-              git add page_*.json
-              git commit -m "Update static monitor state [skip ci]" || true
-
+              # Step 3: Push
               if git push origin HEAD:main; then
                 echo "Static state committed successfully"
                 exit 0
