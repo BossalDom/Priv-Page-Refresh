@@ -1,15 +1,13 @@
 name: Dynamic website monitor
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"        # every 5 minutes
   workflow_dispatch:
   repository_dispatch:
     types: [dynamic-monitor]
 
 concurrency:
   group: dynamic-housing-monitor
-  cancel-in-progress: false
+  cancel-in-progress: true  # Changed to true to cancel duplicate runs
 
 jobs:
   check-dynamic-sites:
@@ -45,14 +43,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Only commit dynamic state files (dynamic_*.json)
           if [[ -n "$(git status --porcelain | grep 'dynamic_.*\.json' || true)" ]]; then
             echo "Dynamic state files changed, committing..."
 
+            # Step 1: Commit local changes FIRST
+            git add dynamic_*.json
+            git commit -m "Update dynamic monitor state [skip ci]" || true
+
+            # Step 2: Pull and rebase
             for i in {1..5}; do
               if ! git pull --rebase origin main; then
-                echo "Pull failed, trying to resolve dynamic_*.json conflicts"
-
+                echo "Pull failed, resolving conflicts"
                 if [ -d ".git/rebase-apply" ] || [ -d ".git/rebase-merge" ]; then
                   git checkout --ours dynamic_*.json || true
                   git add dynamic_*.json
@@ -60,9 +61,7 @@ jobs:
                 fi
               fi
 
-              git add dynamic_*.json
-              git commit -m "Update dynamic monitor state [skip ci]" || true
-
+              # Step 3: Push
               if git push origin HEAD:main; then
                 echo "Dynamic state committed successfully"
                 exit 0
