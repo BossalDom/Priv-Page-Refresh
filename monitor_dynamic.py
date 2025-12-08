@@ -166,25 +166,21 @@ def fetch_rendered_text(url: str) -> Optional[str]:
 
 def is_valid_apartment_id(apt_id: str) -> bool:
     """
-    Filter out garbage: single words, short strings, malformed data, newlines.
+    Filter out garbage but allow valid apartments through.
     """
-    if len(apt_id) < 4:
+    if len(apt_id) < 4 or len(apt_id) > 120:
         return False
-    # Reject entries with newlines or excessive whitespace
+    # Reject entries with newlines (malformed extraction)
     if "\n" in apt_id or "\r" in apt_id:
         return False
-    if "  " in apt_id:  # Double spaces indicate malformed extraction
+    # Reject obvious UI text
+    if re.search(r'(Per Month|View Property|Click Here|More Info|Apply Now)', apt_id, re.IGNORECASE):
         return False
-    if apt_id.lower() in {"unit", "rent", "property", "apartment", "view", "avenue", "street"}:
+    # Must have at least one digit (apartment/building numbers)
+    if not re.search(r'\d', apt_id):
         return False
-    # Reject if only letters (no numbers at all)
-    if re.fullmatch(r"[a-z]+", apt_id, re.IGNORECASE):
-        return False
-    # Reject malformed mixed strings like "5pe" or "3xyz"
-    if re.search(r'\d+[a-z]{2,}', apt_id, re.IGNORECASE):
-        return False
-    # Reject entries with random text patterns
-    if re.search(r'(Per Month|View Property|Click|More Info)', apt_id, re.IGNORECASE):
+    # Reject if it's ONLY a common word
+    if apt_id.lower().strip() in {"unit", "rent", "apartment", "available"}:
         return False
     return True
 
@@ -192,6 +188,7 @@ def is_valid_apartment_id(apt_id: str) -> bool:
 def extract_apartment_ids(text: str, url: str) -> Set[str]:
     """
     Route to site-specific extractors based on domain.
+    Falls back to generic extractor if no match.
     """
     if "iaffordny.com" in url or "afny.org" in url:
         return extract_ids_iafford_afny(text)
@@ -208,21 +205,33 @@ def extract_apartment_ids(text: str, url: str) -> Set[str]:
     if "nyc.gov" in url:
         return extract_ids_nychpd(text)
 
-    return set()
+    # Generic fallback for sites without custom extractors
+    return extract_ids_generic(text)
 
 
 def extract_ids_clinton(text: str) -> Set[str]:
     """
-    Clinton Management: looks for building + address patterns.
+    Clinton Management: Building addresses and names.
     """
     apartments: Set[str] = set()
     
-    pattern = re.compile(
-        r"(\d+\s+[A-Z][A-Za-z0-9 .,'-]+?(?:Avenue|Street|Road|Place|Apartments?|Apartment))\s+(?=NYC|Brooklyn|Bronx|Queens|Manhattan|\$)",
+    # Pattern 1: Address with location
+    pattern1 = re.compile(
+        r'(\d+\s+[A-Za-z0-9 .,\'-]{3,50}?(?:Street|Avenue|Road|Boulevard|Place|Drive))\s+(?:in\s+)?(?:NYC|Brooklyn|Bronx|Queens|Manhattan|\$|\d+\s*BR)',
         re.IGNORECASE,
     )
-    for match in pattern.finditer(text):
-        apartments.add(match.group(1).strip())
+    for match in pattern1.finditer(text):
+        apt = re.sub(r'\s+', ' ', match.group(1)).strip()
+        apartments.add(apt)
+    
+    # Pattern 2: Building name
+    pattern2 = re.compile(
+        r'([A-Z][A-Za-z0-9 \'-]{5,40}?(?:Apartments?|Towers?|Houses?|Court|Plaza))\s+(?:\$|\d+\s*BR|Available)',
+        re.IGNORECASE,
+    )
+    for match in pattern2.finditer(text):
+        apt = re.sub(r'\s+', ' ', match.group(1)).strip()
+        apartments.add(apt)
     
     debug_print(f"[dynamic] clinton extracted {len(apartments)} ids")
     return apartments
@@ -264,16 +273,28 @@ def extract_ids_cgm(text: str) -> Set[str]:
 
 def extract_ids_iafford_afny(text: str) -> Set[str]:
     """
-    iAfford NY / AFNY: building names followed by property details.
+    iAfford NY / AFNY: Extract building addresses or names.
+    Multiple patterns to catch different formats.
     """
     apartments: Set[str] = set()
     
-    pattern = re.compile(
-        r"(\d+\s+[A-Z][A-Za-z0-9 .,'-]+?(?:Apartments?|Apartment))\s+(?=\d+\s+Bedrooms?|\$)",
+    # Pattern 1: Address with bedrooms or price
+    pattern1 = re.compile(
+        r'(\d+\s+[A-Za-z0-9 .,\'-]{3,50}?(?:Street|Avenue|Road|Boulevard|Place|Drive|Apartments?|Apartment|Building|Towers?|Houses?))\s*(?:-|–)?\s*(?:\d+\s*BR|\$|Bedrooms?)',
         re.IGNORECASE,
     )
-    for match in pattern.finditer(text):
-        apartments.add(match.group(1).strip())
+    for match in pattern1.finditer(text):
+        apt = re.sub(r'\s+', ' ', match.group(1)).strip()
+        apartments.add(apt)
+    
+    # Pattern 2: Building name followed by unit
+    pattern2 = re.compile(
+        r'([A-Z][A-Za-z0-9 \'-]{3,40}?(?:Apartments?|Towers?|Houses?|Building))\s+(?:Unit|Apt\.?|#)\s*([A-Z0-9]{1,5})\b',
+        re.IGNORECASE,
+    )
+    for match in pattern2.finditer(text):
+        building, unit = match.groups()
+        apartments.add(f"{building.strip()} Unit {unit}")
     
     debug_print(f"[dynamic] iafford/afny extracted {len(apartments)} ids")
     return apartments
@@ -370,6 +391,46 @@ def extract_ids_fifthave(text: str) -> Set[str]:
     return apartments
 
 
+def extract_ids_generic(text: str) -> Set[str]:
+    """
+    Generic extractor for sites without custom patterns.
+    Looks for common apartment listing patterns.
+    """
+    apartments: Set[str] = set()
+    
+    # Pattern 1: Street addresses
+    pattern1 = re.compile(
+        r'(\d+\s+[A-Za-z0-9 .,\'-]{3,50}?(?:Street|Avenue|Road|Boulevard|Place|Drive|Lane))',
+        re.IGNORECASE,
+    )
+    for match in pattern1.finditer(text):
+        apt = re.sub(r'\s+', ' ', match.group(1)).strip()
+        if len(apt) >= 8:  # Reasonable address length
+            apartments.add(apt)
+    
+    # Pattern 2: Building names
+    pattern2 = re.compile(
+        r'([A-Z][A-Za-z0-9 \'-]{5,40}?(?:Apartments?|Towers?|Houses?|Building|Court|Plaza))',
+        re.IGNORECASE,
+    )
+    for match in pattern2.finditer(text):
+        apt = re.sub(r'\s+', ' ', match.group(1)).strip()
+        apartments.add(apt)
+    
+    # Pattern 3: Unit numbers
+    pattern3 = re.compile(r'(Unit\s+[A-Z0-9]{1,5})\b', re.IGNORECASE)
+    for match in pattern3.finditer(text):
+        apartments.add(match.group(1).strip())
+    
+    # Limit to reasonable number
+    if len(apartments) > 100:
+        debug_print(f"[dynamic] generic extracted too many ({len(apartments)}) - noise")
+        return set()
+    
+    debug_print(f"[dynamic] generic extracted {len(apartments)} ids")
+    return apartments
+
+
 def format_apartment_changes(added: Set[str], removed: Set[str]) -> str:
     """
     Build alert message focusing on additions only.
@@ -430,7 +491,7 @@ DYNAMIC_URLS = [
     "https://www.nyc.gov/site/hpd/services-and-information/find-affordable-housing-re-rentals.page",
     "https://afny.org/re-rentals",
     "https://cgmrcompliance.com/housing-opportunities-1",
-    "https://city5.nyc/",
+    # REMOVED: city5.nyc - DNS failure (598 failures)
     "https://www.clintonmanagement.com/availabilities/affordable/",
     "https://fifthave.org/re-rental-availabilities/",
     "https://iaffordny.com/re-rentals",
@@ -448,9 +509,9 @@ DYNAMIC_URLS = [
     "https://riseboro.org/housing/woodlawn-senior-living/",
     "https://streeteasy.com/building/riverton-square",
     "https://www.sjpny.com/affordable-rerentals",
-    "https://unc-inc.com/affordable-housing/",
-    "https://urbanhomewerks.com/current-opportunities",
-    "https://urbanhomeworksaff.com/",
+    # REMOVED: unc-inc.com - DNS failure
+    # REMOVED: urbanhomewerks.com - DNS failure
+    # REMOVED: urbanhomeworksaff.com - DNS failure
     "https://east-village-homes-owner-llc.rentcafewebsite.com/",
     "https://www.whedco.org/real-estate/affordable-housing-rentals/",
 ]
