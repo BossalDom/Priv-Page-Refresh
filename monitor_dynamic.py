@@ -166,9 +166,14 @@ def fetch_rendered_text(url: str) -> Optional[str]:
 
 def is_valid_apartment_id(apt_id: str) -> bool:
     """
-    Filter out garbage: single words, short strings, malformed data.
+    Filter out garbage: single words, short strings, malformed data, newlines.
     """
     if len(apt_id) < 4:
+        return False
+    # Reject entries with newlines or excessive whitespace
+    if "\n" in apt_id or "\r" in apt_id:
+        return False
+    if "  " in apt_id:  # Double spaces indicate malformed extraction
         return False
     if apt_id.lower() in {"unit", "rent", "property", "apartment", "view", "avenue", "street"}:
         return False
@@ -177,6 +182,9 @@ def is_valid_apartment_id(apt_id: str) -> bool:
         return False
     # Reject malformed mixed strings like "5pe" or "3xyz"
     if re.search(r'\d+[a-z]{2,}', apt_id, re.IGNORECASE):
+        return False
+    # Reject entries with random text patterns
+    if re.search(r'(Per Month|View Property|Click|More Info)', apt_id, re.IGNORECASE):
         return False
     return True
 
@@ -273,41 +281,50 @@ def extract_ids_iafford_afny(text: str) -> Set[str]:
 
 def extract_ids_reside(text: str) -> Set[str]:
     """
-    Reside NY: Building + optional unit, handling weird dash encoding.
-
-    Examples in text:
-      673 Hart Street Apartment – Unit 3A
-      850 Flatbush Apartments – Unit 7A
-      Flushing Preservation | 137-20 45th Avenue Apartment – Unit 4B
+    Reside NY: Building + unit ONLY. Must have both to be valid.
+    
+    STRICT RULES:
+    - Must have building address with number
+    - Must have unit number
+    - No standalone buildings without units
+    - No garbage with newlines or random text
+    
+    Valid examples:
+      673 Hart Street Apartment - Unit 3A
+      850 Flatbush Apartments - Unit 7A
+      Flushing Preservation | 137-20 45th Avenue Apartment - Unit 4B
     """
     apartments: Set[str] = set()
 
+    # Normalize dashes
     text = text.replace("â€", "-").replace("—", "-").replace("–", "-")
 
+    # Pattern 1: Building address - Unit X (most common)
     pattern1 = re.compile(
-        r"(\d+\s+[A-Z][A-Za-z0-9 .,'-]+?(?:Apartments?|Apartment)?)\s*-\s*Unit\s+([A-Z0-9]+)",
+        r"(\d+\s+[A-Za-z0-9 .,'-]{3,40}?(?:Street|Avenue|Road|Place|Boulevard|Apartments?|Apartment))\s*-\s*Unit\s+([A-Z0-9]{1,5})\b",
         re.IGNORECASE,
     )
     for match in pattern1.finditer(text):
         building, unit = match.groups()
-        apartments.add(f"{building.strip()} - Unit {unit}")
+        # Clean up building name
+        building = re.sub(r'\s+', ' ', building).strip()
+        apt_id = f"{building} - Unit {unit.upper()}"
+        apartments.add(apt_id)
 
+    # Pattern 2: Project | Address - Unit X
     pattern2 = re.compile(
-        r"([A-Z][A-Za-z0-9 .,'-]+?)\s*\|\s*(\d+[^\n]+?)\s*-\s*Unit\s+([A-Z0-9]+)",
+        r"([A-Za-z][A-Za-z0-9 ]{2,30}?)\s*\|\s*(\d+[A-Za-z0-9 .,'-]{3,40}?)\s*-\s*Unit\s+([A-Z0-9]{1,5})\b",
         re.IGNORECASE,
     )
     for match in pattern2.finditer(text):
         name, addr, unit = match.groups()
-        apartments.add(f"{name.strip()} {addr.strip()} - Unit {unit}")
+        # Clean up
+        name = re.sub(r'\s+', ' ', name).strip()
+        addr = re.sub(r'\s+', ' ', addr).strip()
+        apt_id = f"{name} | {addr} - Unit {unit.upper()}"
+        apartments.add(apt_id)
 
-    pattern3 = re.compile(
-        r"(\d+\s+[A-Z][A-Za-z0-9 .,'-]+?(?:Apartments?|Apartment))\s+(?=Affordable|Open Market|\$)",
-        re.IGNORECASE,
-    )
-    for match in pattern3.finditer(text):
-        apartments.add(match.group(1).strip())
-
-    debug_print(f"[dynamic] ResideNY extracted {len(apartments)} ids")
+    debug_print(f"[dynamic] ResideNY extracted {len(apartments)} ids (strict mode)")
     return apartments
 
 
@@ -426,7 +443,8 @@ DYNAMIC_URLS = [
     "https://www.prontohousingrentals.com/",
     "https://sbmgmt.sitemanager.rentmanager.com/RECLAIMHDFC.aspx",
     "https://ahgleasing.com/",
-    "https://residenewyork.com/property-status/open-market/",
+    # TEMPORARILY DISABLED - extractor too unstable, causing spam
+    # "https://residenewyork.com/property-status/open-market/",
     "https://riseboro.org/housing/woodlawn-senior-living/",
     "https://streeteasy.com/building/riverton-square",
     "https://www.sjpny.com/affordable-rerentals",
@@ -441,7 +459,14 @@ DYNAMIC_URLS = [
 def run_dynamic_once() -> None:
     text_state = load_json(TEXT_FILE)
     apt_state_raw = load_json(APT_FILE)
-    apt_state: Dict[str, list] = {k: list(v) for k, v in apt_state_raw.items()}
+    # Deduplicate existing state when loading
+    apt_state: Dict[str, list] = {}
+    for url, apts in apt_state_raw.items():
+        # Convert to set to remove duplicates, then back to sorted list
+        unique_apts = set(apts)
+        # Filter out any invalid apartments that slipped through
+        valid_apts = {a for a in unique_apts if is_valid_apartment_id(a)}
+        apt_state[url] = sorted(valid_apts)
     
     print(f"[INFO] Loaded state for {len(apt_state)} URLs")
 
@@ -481,6 +506,13 @@ def run_dynamic_once() -> None:
 
         if not added and not removed:
             print(f"[NOCHANGE] {url} - same apartment set")
+            continue
+
+        # Skip massive changes - likely extractor instability, not real changes
+        if len(added) > 30 or len(removed) > 30:
+            print(f"[SKIP] {url}: Massive change detected (+{len(added)} / -{len(removed)})")
+            print(f"[SKIP] This indicates extractor instability. State NOT updated.")
+            print(f"[SKIP] Consider fixing the extractor for this site.")
             continue
 
         print(f"[CHANGE] {url}: +{len(added)} / -{len(removed)}")
