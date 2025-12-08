@@ -91,11 +91,14 @@ def cleanup_playwright_tmp() -> None:
                     shutil.rmtree(item, ignore_errors=True)
             except Exception:
                 pass
-        for tmp_path in tmp_dir.glob("*"):
-            if tmp_path.name.startswith("tmp") and tmp_path.suffix in (".png", ".jpg"):
-                tmp_path.unlink()
+        try:
+            for tmp_path in tmp_dir.glob("*"):
+                if tmp_path.name.startswith("tmp") and tmp_path.suffix in (".png", ".jpg"):
+                    tmp_path.unlink()
         except Exception:
             pass
+    except Exception:
+        pass
 
 
 def normalize_whitespace(text: str) -> str:
