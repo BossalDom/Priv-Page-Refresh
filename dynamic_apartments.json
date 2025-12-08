@@ -1,11 +1,7 @@
 {
   "https://afny.org/re-rentals": [],
-  "https://ahgleasing.com/": [
-    "451 Tenth Avenue Apartments"
-  ],
-  "https://east-village-homes-owner-llc.rentcafewebsite.com/": [
-    "unit"
-  ],
+  "https://ahgleasing.com/": [],
+  "https://east-village-homes-owner-llc.rentcafewebsite.com/": [],
   "https://fifthave.org/re-rental-availabilities/": [
     "Unit 20F",
     "Unit 3F",
@@ -13,13 +9,8 @@
   ],
   "https://iaffordny.com/re-rentals": [],
   "https://ibis.powerappsportals.com/": [],
-  "https://mgnyconsulting.com/listings/": [
-    "2010 Walton Avenue Apartments",
-    "Avenue",
-    "Unit"
-  ],
+  "https://mgnyconsulting.com/listings/": [],
   "https://residenewyork.com/property-status/open-market/": [
-    "076 Per Month\nView Property\nDunbar Apartments",
     "1134 Fulton Street Apartment",
     "125 St Apartment",
     "125 St Apartment",
@@ -33,7 +24,6 @@
     "2067 Anthony Avenue Apartments",
     "2175 Bergen Street Apartment",
     "2175 Bergen Street Apartment",
-    "250 Per Month\nView Property\nDunbar Apartments",
     "673 Hart Street Apartment",
     "673 Hart Street Apartment",
     "850 Flatbush Apartments",
@@ -60,10 +50,7 @@
     "Unit 7A",
     "Unit 7C"
   ],
-  "https://riseboro.org/housing/woodlawn-senior-living/": [
-    "Unit",
-    "unit"
-  ],
+  "https://riseboro.org/housing/woodlawn-senior-living/": [],
   "https://sbmgmt.sitemanager.rentmanager.com/RECLAIMHDFC.aspx": [],
   "https://sites.google.com/affordablelivingnyc.com/hpd/home": [
     "Unit 39B"
@@ -80,18 +67,16 @@
     "1465 Park Avenue-$4614",
     "231 View Advertisement-$1038",
     "315 View Advertisement-$1590",
-    "3BR-Mobility Adapted-$980",
     "762 View Advertisement-$1150",
     "88 View Advertisement-$2028",
     "900 View Advertisement-$1391",
     "980 Westchester Apartments ",
     "980 Westchester Apartments 980"
   ],
-  "https://www.prontohousingrentals.com/": [
-    "",
-    "Unit",
-    "unit"
-  ],
+  "https://www.prontohousingrentals.com/": [],
   "https://www.sjpny.com/affordable-rerentals": [],
-  "https://www.rivertonsquare.com/available-rentals": []
+  "https://www.rivertonsquare.com/available-rentals": [],
+  "https://www.nyc.gov/site/hpd/services-and-information/find-affordable-housing-re-rentals.page": [],
+  "https://www.mickigarciarealty.com/": [],
+  "https://www.whedco.org/real-estate/affordable-housing-rentals/": []
 }
