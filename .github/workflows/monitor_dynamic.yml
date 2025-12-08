@@ -8,7 +8,7 @@ on:
     types: [dynamic-monitor]
 
 concurrency:
-  group: housing-monitor
+  group: dynamic-housing-monitor
   cancel-in-progress: false
 
 jobs:
@@ -45,26 +45,26 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Only bother if any JSON files changed
-          if [[ -n "$(git status --porcelain | grep '\.json' || true)" ]]; then
-            echo "State files changed, committing..."
+          # Only commit dynamic state files (dynamic_*.json)
+          if [[ -n "$(git status --porcelain | grep 'dynamic_.*\.json' || true)" ]]; then
+            echo "Dynamic state files changed, committing..."
 
             for i in {1..5}; do
               if ! git pull --rebase origin main; then
-                echo "Pull failed, trying to resolve JSON conflicts"
+                echo "Pull failed, trying to resolve dynamic_*.json conflicts"
 
                 if [ -d ".git/rebase-apply" ] || [ -d ".git/rebase-merge" ]; then
-                  git checkout --ours *.json || true
-                  git add *.json
+                  git checkout --ours dynamic_*.json || true
+                  git add dynamic_*.json
                   git rebase --continue || true
                 fi
               fi
 
-              git add *.json
-              git commit -m "Update dynamic monitor state [skip ci]" || echo "Nothing new to commit"
+              git add dynamic_*.json
+              git commit -m "Update dynamic monitor state [skip ci]" || true
 
               if git push origin HEAD:main; then
-                echo "State committed successfully"
+                echo "Dynamic state committed successfully"
                 exit 0
               fi
 
@@ -72,8 +72,8 @@ jobs:
               sleep $((i * 2))
             done
 
-            echo "ERROR: Failed to push state after 5 attempts"
+            echo "ERROR: Failed to push dynamic state after 5 attempts"
             exit 1
           else
-            echo "No JSON changes to commit"
+            echo "No dynamic JSON changes to commit"
           fi
