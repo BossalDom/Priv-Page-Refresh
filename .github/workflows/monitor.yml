@@ -8,7 +8,7 @@ on:
     types: [static-monitor]
 
 concurrency:
-  group: housing-monitor
+  group: static-housing-monitor
   cancel-in-progress: false
 
 jobs:
@@ -41,26 +41,26 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Only bother if any JSON files changed
-          if [[ -n "$(git status --porcelain | grep '\.json' || true)" ]]; then
-            echo "State files changed, committing..."
+          # Only commit static state files (page_*.json)
+          if [[ -n "$(git status --porcelain | grep 'page_.*\.json' || true)" ]]; then
+            echo "Static state files changed, committing..."
 
             for i in {1..5}; do
               if ! git pull --rebase origin main; then
-                echo "Pull failed, trying to resolve JSON conflicts"
+                echo "Pull failed, trying to resolve page_*.json conflicts"
 
                 if [ -d ".git/rebase-apply" ] || [ -d ".git/rebase-merge" ]; then
-                  git checkout --ours *.json || true
-                  git add *.json
+                  git checkout --ours page_*.json || true
+                  git add page_*.json
                   git rebase --continue || true
                 fi
               fi
 
-              git add *.json
-              git commit -m "Update static monitor state [skip ci]" || echo "Nothing new to commit"
+              git add page_*.json
+              git commit -m "Update static monitor state [skip ci]" || true
 
               if git push origin HEAD:main; then
-                echo "State committed successfully"
+                echo "Static state committed successfully"
                 exit 0
               fi
 
@@ -68,8 +68,8 @@ jobs:
               sleep $((i * 2))
             done
 
-            echo "ERROR: Failed to push state after 5 attempts"
+            echo "ERROR: Failed to push static state after 5 attempts"
             exit 1
           else
-            echo "No JSON changes to commit"
+            echo "No static JSON changes to commit"
           fi
