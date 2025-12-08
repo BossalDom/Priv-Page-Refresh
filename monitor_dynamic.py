@@ -166,13 +166,17 @@ def fetch_rendered_text(url: str) -> Optional[str]:
 
 def is_valid_apartment_id(apt_id: str) -> bool:
     """
-    Filter out garbage: single words, short strings, etc.
+    Filter out garbage: single words, short strings, malformed data.
     """
     if len(apt_id) < 4:
         return False
-    if apt_id.lower() in {"unit", "rent", "property", "apartment", "view"}:
+    if apt_id.lower() in {"unit", "rent", "property", "apartment", "view", "avenue", "street"}:
         return False
+    # Reject if only letters (no numbers at all)
     if re.fullmatch(r"[a-z]+", apt_id, re.IGNORECASE):
+        return False
+    # Reject malformed mixed strings like "5pe" or "3xyz"
+    if re.search(r'\d+[a-z]{2,}', apt_id, re.IGNORECASE):
         return False
     return True
 
@@ -326,13 +330,18 @@ def extract_ids_mgny(text: str) -> Set[str]:
 
 def extract_ids_fifthave(text: str) -> Set[str]:
     """
-    Fifth Ave Committee: Unit numbers like "Unit 20F", "Unit 3F".
+    Fifth Ave Committee: Unit numbers like "Unit 20F", "Unit 3F", "Unit 617".
+    Must be digits optionally followed by a single letter.
     """
     apartments: Set[str] = set()
 
-    pattern = re.compile(r"(Unit\s+[A-Z0-9]+)", re.IGNORECASE)
+    pattern = re.compile(r"(Unit\s+\d+[A-Z]?)\b", re.IGNORECASE)
     for match in pattern.finditer(text):
-        apartments.add(match.group(1).strip())
+        apt = match.group(1).strip()
+        # Additional validation: unit number should be reasonable (1-9999)
+        unit_num = re.search(r'\d+', apt)
+        if unit_num and 1 <= int(unit_num.group()) <= 9999:
+            apartments.add(apt)
 
     if len(apartments) > 50:
         debug_print(
