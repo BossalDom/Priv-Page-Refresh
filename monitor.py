@@ -2,9 +2,9 @@
 """
 Static site monitor.
 
-You can use this if you later want to track non listing pages where
-any text change is important. For now STATIC_URLS is empty because
-all housing listing pages are handled in monitor_dynamic.py.
+You can use this later to track non listing pages where any text change
+matters. For now STATIC_URLS is empty because all housing listing
+pages are handled in monitor_dynamic.py.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ MIN_DIFF_SNIPPETS = 1
 
 WEB_HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64 "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36"
     ),
@@ -61,6 +61,7 @@ def load_json(path: Path) -> Dict[str, object]:
 
 
 def save_json(path: Path, data: Dict[str, object]) -> None:
+    """Atomic JSON write."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
@@ -148,7 +149,7 @@ def summarize_diff(
     if not snippets:
         return None
 
-    summary = "\n\n".join(snippets)
+    summary = "\n".join(snippets)
     if len(summary) > max_chars:
         summary = summary[:max_chars] + "\n\n[...truncated]"
 
