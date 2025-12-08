@@ -2,13 +2,9 @@
 """
 Dynamic site monitor.
 
-Uses Playwright to render JavaScript heavy pages, extracts apartment-like
-identifiers, compares them to previous runs, and sends ntfy alerts only
-when apartments are added or removed.
-
-Relies on env:
-    NTFY_TOPIC_URL   - ntfy topic URL
-    DEBUG            - "true" for extra logging
+Renders JavaScript heavy pages with Playwright, extracts apartment like
+identifiers per site, compares sets to the previous run, and sends ntfy
+alerts when apartments are added or removed.
 """
 
 from __future__ import annotations
@@ -31,12 +27,18 @@ ROOT = Path(__file__).parent
 
 TEXT_FILE = ROOT / "dynamic_texts.json"
 APT_FILE = ROOT / "dynamic_apartments.json"
+FAILURE_FILE = ROOT / "dynamic_failures.json"
+LAST_ALERT_FILE = ROOT / "dynamic_last_alert.json"
+COOLDOWN_FILE = ROOT / "dynamic_cooldowns.json"
+
+FAILURE_ALERT_THRESHOLD = 10
+ALERT_COOLDOWN_HOURS = 24
 
 NTFY_TOPIC_URL = os.environ.get("NTFY_TOPIC_URL", "").strip()
 DEBUG = os.environ.get("DEBUG", "").lower() == "true"
 
 WEB_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64 "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
@@ -59,7 +61,7 @@ def load_json(path: Path) -> Dict[str, object]:
 
 
 def save_json(path: Path, data: Dict[str, object]) -> None:
-    """Atomic JSON write to avoid corrupt state."""
+    """Atomic JSON write."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
@@ -85,41 +87,69 @@ def normalize_whitespace(text: str) -> str:
 
 
 def fetch_rendered_html(url: str, max_retries: int = 2) -> Optional[str]:
-    """Render a page with Playwright and return HTML or None."""
+    """
+    Render with exponential backoff and simple cooldown to avoid hammering
+    permanently broken or blocking sites.
+    """
+    cooldowns = load_json(COOLDOWN_FILE)
+    now = time.time()
+
+    cooldown_until = cooldowns.get(url)
+    if isinstance(cooldown_until, (int, float)) and now < cooldown_until:
+        debug_print(f"[dynamic] {url} in cooldown until {cooldown_until}")
+        return None
+
     for attempt in range(max_retries + 1):
-        timeout = 45000 + attempt * 15000
-        jitter = random.uniform(2, 5)
+        timeout = int(30000 * (1.5 ** attempt))  # 30s, 45s, 67s
+        jitter = random.uniform(1, 3)
         time.sleep(jitter)
 
-        debug_print(f"[dynamic] Fetch attempt {attempt + 1} for {url}, timeout {timeout} ms")
+        debug_print(
+            f"[dynamic] Fetch attempt {attempt + 1} for {url}, timeout {timeout} ms"
+        )
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent=WEB_USER_AGENT,
-                viewport={"width": 1200, "height": 900},
-                locale="en-US",
-            )
-            page = context.new_page()
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
+                context = browser.new_context(
+                    user_agent=WEB_USER_AGENT,
+                    viewport={"width": 1920, "height": 1080},
+                    locale="en-US",
+                )
+                context.add_init_script(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+                )
 
-            try:
+                page = context.new_page()
                 page.goto(url, wait_until="domcontentloaded", timeout=timeout)
-                page.wait_for_timeout(5000 + attempt * 2000)
+                page.wait_for_timeout(3000 + attempt * 2000)
 
                 html = page.content()
+                browser.close()
+
                 if "forbidden" in html.lower() or "access denied" in html.lower():
                     raise RuntimeError("Site blocking detected")
 
-                browser.close()
+                # Success, clear cooldown entry if present
+                if url in cooldowns:
+                    del cooldowns[url]
+                    save_json(COOLDOWN_FILE, cooldowns)
+
                 debug_print(f"[dynamic] HTML length for {url}: {len(html)}")
                 return html
-            except Exception as e:
-                print(f"[WARN] Attempt {attempt + 1} failed for {url}: {e}")
-                browser.close()
-                if attempt < max_retries:
-                    time.sleep(5)
-                else:
-                    print(f"[ERROR] Giving up on {url} after {attempt + 1} attempts")
+
+        except Exception as e:
+            print(f"[WARN] Attempt {attempt + 1} failed for {url}: {e}")
+            if attempt < max_retries:
+                time.sleep(5 * (attempt + 1))
+            else:
+                # Put site in 1 hour cooldown
+                cooldowns[url] = time.time() + 3600
+                save_json(COOLDOWN_FILE, cooldowns)
+
     return None
 
 
@@ -142,32 +172,70 @@ def fetch_rendered_text(url: str) -> Optional[str]:
 
 
 def is_valid_apartment_id(apt_id: str) -> bool:
-    """Filter out obvious noise."""
-    if not apt_id:
+    """
+    Filter out obvious noise while allowing real listings.
+
+    Must contain either:
+      - a digit, or
+      - "unit" / "apartment" / "building".
+    """
+    if not apt_id or len(apt_id) < 5:
         return False
 
-    if not re.search(r"\d", apt_id):
+    if len(apt_id) > 200:
         return False
 
-    if len(apt_id) > 160:
+    has_number = bool(re.search(r"\d", apt_id))
+    has_marker = bool(
+        re.search(r"\b(?:unit|apartment|building)\b", apt_id, re.IGNORECASE)
+    )
+
+    if not (has_number or has_marker):
         return False
 
-    noise_words = [
-        "cookie",
-        "privacy",
-        "terms",
-        "copyright",
-        "menu",
-        "login",
-        "sign up",
-        "subscribe",
-        "newsletter",
+    noise_patterns = [
+        r"^(menu|login|sign|subscribe|newsletter|cookie|privacy|terms|copyright)\b",
+        r"^\d{1,2}:\d{2}",
+        r"^page \d+",
     ]
     lowered = apt_id.lower()
-    if any(word in lowered for word in noise_words):
-        return False
+    for pat in noise_patterns:
+        if re.match(pat, lowered):
+            return False
 
     return True
+
+
+def track_failure(url: str) -> None:
+    failures = load_json(FAILURE_FILE)
+    last_alerts = load_json(LAST_ALERT_FILE)
+
+    failures[url] = failures.get(url, 0) + 1
+
+    if failures[url] >= FAILURE_ALERT_THRESHOLD:
+        last_alert = float(last_alerts.get(url, 0))
+        hours_since = (time.time() - last_alert) / 3600 if last_alert else 999
+
+        if hours_since >= ALERT_COOLDOWN_HOURS:
+            msg = (
+                f"Site has failed {failures[url]} consecutive checks.\n"
+                f"Possible causes:\n"
+                f"- Site blocking bot traffic\n"
+                f"- Site redesign\n"
+                f"- Extractor pattern needs update"
+            )
+            send_ntfy_alert(url, msg, priority="3")
+            last_alerts[url] = time.time()
+            save_json(LAST_ALERT_FILE, last_alerts)
+
+    save_json(FAILURE_FILE, failures)
+
+
+def reset_failure_count(url: str) -> None:
+    failures = load_json(FAILURE_FILE)
+    if url in failures and failures[url] > 0:
+        failures[url] = 0
+        save_json(FAILURE_FILE, failures)
 
 
 # ---------------------------------------------------------------------
@@ -177,79 +245,121 @@ def is_valid_apartment_id(apt_id: str) -> bool:
 
 def extract_ids_iafford_afny(text: str) -> Set[str]:
     """
-    iafford and AFNY show buildings as lines that end before 'Rent:'.
-    We use the portion before 'Rent:' as the ID and only strip a trailing
-    four digit code like '0825'. We keep 'Multiple Units' and 'Unit 3F'.
+    iafford and AFNY: Extract building names that appear just before 'Rent:'.
+
+    Example:
+      The Urban 144-74 Northern Boulevard -Multiple Units
+      Rent: $2,104.89 - $2,162.77
     """
     apartments: Set[str] = set()
 
     pattern = re.compile(
-        r"(?:^|\n)([A-Z][^\n]+?)\s+Rent:",
-        re.MULTILINE,
+        r"(?:^|\n)([A-Z][^\n]+?)(?:\s+\d{4})?\s*\n?\s*Rent:",
+        re.MULTILINE | re.DOTALL,
     )
 
     for match in pattern.finditer(text):
         name = match.group(1).strip()
-        # Remove trailing 4 digit codes, keep other descriptors
-        name = re.sub(r"\s+\d{4}$", "", name).strip()
-        apartments.add(name)
+        name = name.replace("Â", "").replace("â€", "-")
 
-    debug_print(f"[dynamic] iafford/afny buildings: {len(apartments)}")
+        name = re.sub(r"\s+-\s*$", "", name)
+        name = re.sub(r"\s+\d{4}$", "", name)
+
+        if len(name) > 10:
+            apartments.add(name)
+
+    debug_print(f"[dynamic] iafford/afny extracted {len(apartments)} ids")
     return apartments
 
 
 def extract_ids_reside(text: str) -> Set[str]:
     """
-    Reside NY: use building names on the open market page.
+    Reside NY: Building + optional unit, handling weird dash encoding.
+
+    Examples in text:
+      673 Hart Street Apartment â€" Unit 3A
+      850 Flatbush Apartments â€" Unit 7A
+      Flushing Preservation | 137-20 45th Avenue Apartment â€" Unit 4B
     """
     apartments: Set[str] = set()
 
-    pattern = re.compile(
-        r"(\d+\s+[A-Z][A-Za-z0-9 .,'-]+?)(?:\s+Apartments|\s+-|\s+Unit\b)",
+    text = text.replace("â€", "-").replace("—", "-").replace("–", "-")
+
+    pattern1 = re.compile(
+        r"(\d+\s+[A-Z][A-Za-z0-9 .,'-]+?(?:Apartments?|Apartment)?)\s*-\s*Unit\s+([A-Z0-9]+)",
+        re.IGNORECASE,
     )
+    for match in pattern1.finditer(text):
+        building, unit = match.groups()
+        apartments.add(f"{building.strip()} - Unit {unit}")
 
-    for match in pattern.finditer(text):
-        name = match.group(1).strip()
-        apartments.add(name)
+    pattern2 = re.compile(
+        r"([A-Z][A-Za-z0-9 .,'-]+?)\s*\|\s*(\d+[^\n]+?)\s*-\s*Unit\s+([A-Z0-9]+)",
+        re.IGNORECASE,
+    )
+    for match in pattern2.finditer(text):
+        name, addr, unit = match.groups()
+        apartments.add(f"{name.strip()} {addr.strip()} - Unit {unit}")
 
-    debug_print(f"[dynamic] ResideNY ids: {len(apartments)}")
+    pattern3 = re.compile(
+        r"(\d+\s+[A-Z][A-Za-z0-9 .,'-]+?(?:Apartments?|Apartment))\s+(?=Affordable|Open Market|\$)",
+        re.IGNORECASE,
+    )
+    for match in pattern3.finditer(text):
+        apartments.add(match.group(1).strip())
+
+    debug_print(f"[dynamic] ResideNY extracted {len(apartments)} ids")
     return apartments
 
 
 def extract_ids_mgny(text: str) -> Set[str]:
     """
-    MGNY Listings: '2010 Walton Avenue Apartments' style.
+    MGNY: Building names like "2010 Walton Avenue Apartments" with nearby rent.
     """
     apartments: Set[str] = set()
 
     pattern = re.compile(
-        r"(\d+\s+[A-Z][A-Za-z0-9 .,'-]+?\s+Apartments)",
+        r"(\d+\s+[A-Z][A-Za-z ]{5,}?\s+Apartments)[^\n]{0,100}?\$\s*\d",
+        re.IGNORECASE,
     )
 
     for match in pattern.finditer(text):
         name = match.group(1).strip()
-        apartments.add(name)
+        if re.match(r"\d+\s+[A-Z][a-z]+\s+[A-Z]", name):
+            apartments.add(name)
 
-    debug_print(f"[dynamic] MGNY ids: {len(apartments)}")
+    debug_print(f"[dynamic] MGNY extracted {len(apartments)} ids")
     return apartments
 
 
 def extract_ids_generic(text: str) -> Set[str]:
     """
-    Generic fallback for sites we have not tuned yet.
-    Tries to pull out address-like strings that contain numbers plus a name.
+    Generic fallback: look for address like strings near rent phrases.
     """
     apartments: Set[str] = set()
 
-    for match in re.finditer(
-        r"\b(\d+\s+[A-Z][A-Za-z0-9 .,'-]+?)\b.*?\$\s*([\d,]+)",
-        text,
-    ):
-        address, rent = match.groups()
-        rent_clean = rent.replace(",", "")
-        apartments.add(f"{address} ${rent_clean}")
+    chunks = re.split(r"(?=Rent:|\$\s*\d{3,})", text)
 
-    debug_print(f"[dynamic] generic ids: {len(apartments)}")
+    addr_pattern = re.compile(
+        r"\b(\d+\s+[A-Z][A-Za-z]{2,}\s+"
+        r"(?:Street|Avenue|Road|Boulevard|Drive|Place|Court|Way|Lane)[^.\n]{0,30})",
+        re.IGNORECASE,
+    )
+
+    for chunk in chunks:
+        if not re.search(r"(Rent:|Monthly Rent|\$\s*\d{3,})", chunk):
+            continue
+
+        match = addr_pattern.search(chunk[:200])
+        if match:
+            addr = match.group(1).strip()
+            rent_match = re.search(r"\$\s*([\d,]+)", chunk)
+            if rent_match:
+                apartments.add(f"{addr} ${rent_match.group(1)}")
+            else:
+                apartments.add(addr)
+
+    debug_print(f"[dynamic] generic extracted {len(apartments)} ids")
     return apartments
 
 
@@ -306,7 +416,7 @@ def format_apartment_changes(added: Set[str], removed: Set[str]) -> Optional[str
 
 def send_ntfy_alert(url: str, summary: str, priority: str = "4") -> None:
     if not summary:
-        print(f"[INFO] No summary content for {url}, no alert sent")
+        print(f"[INFO] No summary for {url}, no alert sent")
         return
 
     if not NTFY_TOPIC_URL:
@@ -373,7 +483,6 @@ DYNAMIC_URLS = [
 def run_dynamic_once() -> None:
     text_state = load_json(TEXT_FILE)
     apt_state_raw = load_json(APT_FILE)
-
     apt_state: Dict[str, list] = {k: list(v) for k, v in apt_state_raw.items()}
 
     changed_any = False
@@ -382,7 +491,10 @@ def run_dynamic_once() -> None:
         print(f"[INFO] Checking dynamic site {url}")
         text = fetch_rendered_text(url)
         if text is None:
+            track_failure(url)
             continue
+
+        reset_failure_count(url)
 
         new_apartments_raw = extract_apartment_ids(text, url)
         new_apartments = {a for a in new_apartments_raw if is_valid_apartment_id(a)}
