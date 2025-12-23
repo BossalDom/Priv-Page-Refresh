@@ -1,12 +1,5 @@
 {
-  "https://afny.org/re-rentals": [
-    "1100 Myrtle Avenue Unit 408",
-    "11206 1759 West Farms Road",
-    "11238 1100 MYRTLE AVENUE",
-    "1759-63 West Farms Road Unit 6I",
-    "555 Waverly Avenue",
-    "63 West Farms Road Unit 6I"
-  ],
+  "https://afny.org/re-rentals": [],
   "https://iaffordny.com/re-rentals": [
     "10031 50 Clifford Place",
     "10065 1800 Ocean Avenue",
@@ -127,8 +120,7 @@
     "1791 Marmion Avenue - Unit 403",
     "1791 Marmion Avenue - Unit 501",
     "27-16 21st Street - Unit 5F",
-    "44-15 Colden Street - Unit 2S",
-    "4829 White Plains Road - Unit 4B"
+    "44-15 Colden Street - Unit 2S"
   ],
   "https://www.clintonmanagement.com/availabilities/affordable/": [],
   "https://east-village-homes-owner-llc.rentcafewebsite.com/": []
