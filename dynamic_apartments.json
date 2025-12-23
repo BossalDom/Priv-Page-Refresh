@@ -1,12 +1,5 @@
 {
-  "https://afny.org/re-rentals": [
-    "1100 Myrtle Avenue Unit 408",
-    "11206 1759 West Farms Road",
-    "11238 1100 MYRTLE AVENUE",
-    "1759-63 West Farms Road Unit 6I",
-    "555 Waverly Avenue",
-    "63 West Farms Road Unit 6I"
-  ],
+  "https://afny.org/re-rentals": [],
   "https://iaffordny.com/re-rentals": [
     "10031 50 Clifford Place",
     "10065 1800 Ocean Avenue",
@@ -47,7 +40,12 @@
     "950 Ogden Avenue Unit 3C",
     "The Urban 144-74 Northern Boulevard"
   ],
-  "https://fifthave.org/re-rental-availabilities/": [],
+  "https://fifthave.org/re-rental-availabilities/": [
+    "111 Varick Street Unit 20F",
+    "3 Eleven 11th Avenue Unit 617",
+    "539 Vanderbilt Avenue Unit 3F",
+    "The Axel - 539 Vanderbilt Avenue Unit 3F"
+  ],
   "https://mgnyconsulting.com/listings/": [
     "1950 Hobart Avenue",
     "235 Hawthorne Street",
@@ -74,7 +72,10 @@
     "Re-Rental in Elmhurst, Queens"
   ],
   "https://www.langsampropertyservices.com/affordable-rental-opportunities": [],
-  "https://springmanagement.net/apartments-for-rent/": [],
+  "https://springmanagement.net/apartments-for-rent/": [
+    "1488 New York Avenue",
+    "321 E 60th Street"
+  ],
   "https://sbmgmt.sitemanager.rentmanager.com/RECLAIMHDFC.aspx": [
     "1821 University Avenue",
     "1982 University Avenue",
