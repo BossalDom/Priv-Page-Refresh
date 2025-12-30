@@ -124,7 +124,15 @@
     "Van Dyke",
     "Westchester Apartments - 980 WESTCHESTER AVENUE"
   ],
-  "https://residenewyork.com/property-status/open-market/": [],
+  "https://residenewyork.com/property-status/open-market/": [
+    "1546 Jesup Avenue - Unit 3B",
+    "1550 Jesup Avenue - Unit 2A",
+    "1791 Marmion Avenue - Unit 403",
+    "1791 Marmion Avenue - Unit 501",
+    "550 Trinity Avenue - Unit 3E",
+    "564 Saint Johns Place - Unit 219",
+    "58 Vanderbilt Avenue - Unit 7E"
+  ],
   "https://www.clintonmanagement.com/availabilities/affordable/": [],
   "https://east-village-homes-owner-llc.rentcafewebsite.com/": []
 }
