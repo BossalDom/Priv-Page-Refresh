@@ -1,5 +1,14 @@
 {
-  "https://afny.org/re-rentals": [],
+  "https://afny.org/re-rentals": [
+    "1100 Myrtle Avenue Unit 408",
+    "1100 Myrtle Avenue Unit 425",
+    "11206 1100 MYRTLE AVENUE",
+    "11206 1759 West Farms Road",
+    "11238 1100 MYRTLE AVENUE",
+    "1759-63 West Farms Road Unit 6I",
+    "555 Waverly Avenue",
+    "63 West Farms Road Unit 6I"
+  ],
   "https://iaffordny.com/re-rentals": [
     "10031 50 Clifford Place",
     "10065 1800 Ocean Avenue",
@@ -111,14 +120,7 @@
     "Van Dyke",
     "Westchester Apartments - 980 WESTCHESTER AVENUE"
   ],
-  "https://residenewyork.com/property-status/open-market/": [
-    "1546 Jesup Avenue - Unit 3B",
-    "1550 Jesup Avenue - Unit 2A",
-    "1791 Marmion Avenue - Unit 403",
-    "1791 Marmion Avenue - Unit 501",
-    "44-15 Colden Street - Unit 2S",
-    "522 49th Avenue - Unit 2C"
-  ],
+  "https://residenewyork.com/property-status/open-market/": [],
   "https://www.clintonmanagement.com/availabilities/affordable/": [],
   "https://east-village-homes-owner-llc.rentcafewebsite.com/": []
 }
