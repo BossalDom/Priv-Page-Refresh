@@ -1,5 +1,11 @@
 {
-  "https://afny.org/re-rentals": [],
+  "https://afny.org/re-rentals": [
+    "1100 Myrtle Avenue Unit 408",
+    "1100 Myrtle Avenue Unit 425",
+    "11206 1100 MYRTLE AVENUE",
+    "11238 1100 MYRTLE AVENUE",
+    "555 Waverly Avenue"
+  ],
   "https://iaffordny.com/re-rentals": [
     "10031 50 Clifford Place",
     "10065 1800 Ocean Avenue",
@@ -10,9 +16,10 @@
     "10468 853 Lexington Avenue",
     "11101 629 EAST 222 STREET",
     "11201 22 CHAPEL STREET",
+    "11208 31 Lincoln Road",
     "11225 2744 MATTHEWS AVENUE",
     "11225 510 FLATBUSH AVENUE",
-    "11226 31 Lincoln Road",
+    "11226 731 Liberty Avenue",
     "113 Father Zeiser Place Unit 4B",
     "131 Concord Street",
     "144-74 NORTHERN BOULEVARD",
@@ -28,6 +35,7 @@
     "50 Clifford Place Unit 3D",
     "510 FLATBUSH AVENUE Unit 8E",
     "629 East 222nd Street",
+    "731 Liberty Avenue Unit 203",
     "853 Lexington Avenue Unit 4B",
     "The Urban 144-74 Northern Boulevard"
   ],
