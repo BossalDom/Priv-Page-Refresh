@@ -1,5 +1,11 @@
 {
-  "https://afny.org/re-rentals": [],
+  "https://afny.org/re-rentals": [
+    "1100 Myrtle Avenue Unit 408",
+    "1100 Myrtle Avenue Unit 425",
+    "11206 1100 MYRTLE AVENUE",
+    "11238 1100 MYRTLE AVENUE",
+    "555 Waverly Avenue"
+  ],
   "https://iaffordny.com/re-rentals": [
     "10031 50 Clifford Place",
     "10065 1800 Ocean Avenue",
@@ -104,11 +110,10 @@
     "Westchester Apartments - 980 WESTCHESTER AVENUE"
   ],
   "https://residenewyork.com/property-status/open-market/": [
+    "1104 Bedford Ave - Unit 204",
     "1546 Jesup Avenue - Unit 3B",
     "1550 Jesup Avenue - Unit 2A",
     "1791 Marmion Avenue - Unit 403",
-    "1791 Marmion Avenue - Unit 501",
-    "346 Rutland Road - Unit 1A",
     "522 49th Avenue - Unit 2C"
   ],
   "https://www.clintonmanagement.com/availabilities/affordable/": [],
