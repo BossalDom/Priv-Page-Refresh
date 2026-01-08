@@ -1,11 +1,16 @@
 {
-  "https://afny.org/re-rentals": [],
+  "https://afny.org/re-rentals": [
+    "1100 Myrtle Avenue Unit 408",
+    "1100 Myrtle Avenue Unit 425",
+    "11206 1100 MYRTLE AVENUE",
+    "11238 1100 MYRTLE AVENUE",
+    "555 Waverly Avenue"
+  ],
   "https://iaffordny.com/re-rentals": [
     "10031 50 Clifford Place",
     "10065 1800 Ocean Avenue",
     "10453 2337 BEDFORD AVENUE",
     "10467 113 Father Zeiser Place",
-    "10467 461 Winthrop Street",
     "10468 13 GARDEN STREET",
     "10468 2783 Webb Avenue",
     "11101 629 EAST 222 STREET",
@@ -26,7 +31,6 @@
     "2783 Webb Avenue Unit 5A",
     "31-33 LINCOLN ROAD Unit 2I",
     "33 LINCOLN ROAD Unit 2I",
-    "461 Winthrop Street Unit 4C",
     "50 Clifford Place Unit 3D",
     "510 FLATBUSH AVENUE Unit 8E",
     "629 East 222nd Street",
@@ -63,7 +67,10 @@
     "Re-Rental in Elmhurst, Queens"
   ],
   "https://www.langsampropertyservices.com/affordable-rental-opportunities": [],
-  "https://springmanagement.net/apartments-for-rent/": [],
+  "https://springmanagement.net/apartments-for-rent/": [
+    "1488 New York Avenue",
+    "321 E 60th Street"
+  ],
   "https://sbmgmt.sitemanager.rentmanager.com/RECLAIMHDFC.aspx": [
     "1821 University Avenue",
     "1982 University Avenue",
