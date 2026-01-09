@@ -1,5 +1,11 @@
 {
-  "https://afny.org/re-rentals": [],
+  "https://afny.org/re-rentals": [
+    "1100 Myrtle Avenue Unit 408",
+    "1100 Myrtle Avenue Unit 425",
+    "11206 1100 MYRTLE AVENUE",
+    "11238 1100 MYRTLE AVENUE",
+    "555 Waverly Avenue"
+  ],
   "https://iaffordny.com/re-rentals": [
     "10031 50 Clifford Place",
     "10065 1800 Ocean Avenue",
@@ -7,12 +13,12 @@
     "10467 113 Father Zeiser Place",
     "10468 13 GARDEN STREET",
     "10468 2783 Webb Avenue",
-    "11101 31 Lincoln Road",
     "11101 629 EAST 222 STREET",
     "11201 22 CHAPEL STREET",
     "11206 853 Lexington Avenue",
     "11225 2744 MATTHEWS AVENUE",
     "11225 510 FLATBUSH AVENUE",
+    "11226 31 Lincoln Road",
     "113 Father Zeiser Place Unit 4B",
     "13 Garden Street Unit 3B",
     "131 Concord Street",
