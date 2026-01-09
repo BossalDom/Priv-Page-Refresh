@@ -1,11 +1,5 @@
 {
-  "https://afny.org/re-rentals": [
-    "1100 Myrtle Avenue Unit 408",
-    "1100 Myrtle Avenue Unit 425",
-    "11206 1100 MYRTLE AVENUE",
-    "11238 1100 MYRTLE AVENUE",
-    "555 Waverly Avenue"
-  ],
+  "https://afny.org/re-rentals": [],
   "https://iaffordny.com/re-rentals": [
     "10031 50 Clifford Place",
     "10065 1800 Ocean Avenue",
@@ -37,7 +31,12 @@
     "853 Lexington Avenue Unit 4B",
     "The Urban 144-74 Northern Boulevard"
   ],
-  "https://fifthave.org/re-rental-availabilities/": [],
+  "https://fifthave.org/re-rental-availabilities/": [
+    "111 Varick Street Unit 20F",
+    "3 Eleven 11th Avenue Unit 617",
+    "539 Vanderbilt Avenue Unit 17A",
+    "The Axel - 539 Vanderbilt Avenue Unit 17A"
+  ],
   "https://mgnyconsulting.com/listings/": [
     "1111 Foster Avenue",
     "1950 Hobart Avenue",
