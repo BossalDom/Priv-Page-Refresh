@@ -95,7 +95,13 @@
     "WESTCHESTER APARTMENTS - 980 WESTCHESTER AVENUE",
     "Washington Mews - 89 Murray Street"
   ],
-  "https://residenewyork.com/property-status/open-market/": [],
+  "https://residenewyork.com/property-status/open-market/": [
+    "1533 East 19th Street - Unit 803",
+    "1546 Jesup Ave - Unit 1B",
+    "3311 3rd Avenue - Unit 2C",
+    "522 49th Avenue - Unit 2C",
+    "599 Prospect Avenue - Unit 1B"
+  ],
   "https://www.clintonmanagement.com/availabilities/affordable/": [],
   "https://east-village-homes-owner-llc.rentcafewebsite.com/": [],
   "https://cgmrcompliance.com/housing-opportunities-1": []
