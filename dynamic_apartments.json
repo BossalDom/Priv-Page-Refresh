@@ -1,11 +1,7 @@
 {
   "https://afny.org/re-rentals": [],
   "https://iaffordny.com/re-rentals": [],
-  "https://fifthave.org/re-rental-availabilities/": [
-    "111 Varick Street Unit 20F",
-    "539 Vanderbilt Avenue Unit 17A",
-    "The Axel - 539 Vanderbilt Avenue Unit 17A"
-  ],
+  "https://fifthave.org/re-rental-availabilities/": [],
   "https://mgnyconsulting.com/listings/": [
     "1111 Foster Avenue",
     "1950 Hobart Avenue",
@@ -30,7 +26,10 @@
     "Re-Rental in Corona, Queens"
   ],
   "https://www.langsampropertyservices.com/affordable-rental-opportunities": [],
-  "https://springmanagement.net/apartments-for-rent/": [],
+  "https://springmanagement.net/apartments-for-rent/": [
+    "1488 New York Avenue",
+    "321 E 60th Street"
+  ],
   "https://sbmgmt.sitemanager.rentmanager.com/RECLAIMHDFC.aspx": [
     "1821 University Avenue",
     "1982 University Avenue",
