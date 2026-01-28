@@ -1,7 +1,6 @@
 {
   "https://afny.org/re-rentals": [],
   "https://iaffordny.com/re-rentals": [
-    "10031 50 Clifford Place",
     "10065 1800 Ocean Avenue",
     "10453 2783 Webb Avenue",
     "10453 536 East 183rd Street",
@@ -14,6 +13,7 @@
     "13 Garden Street Unit 3B",
     "131 Concord Street",
     "1800 Ocean Avenue Unit 2D",
+    "2026 Google 2 km Click to toggle between metric and imperial units Terms Report a map error 50 Clifford Place",
     "21 Mt Hope Place Unit B5",
     "22 Chapel Street",
     "2783 Webb Avenue Unit 5A",
@@ -22,11 +22,7 @@
     "629 East 222nd Street",
     "853 Lexington Avenue Unit 4B"
   ],
-  "https://fifthave.org/re-rental-availabilities/": [
-    "111 Varick Street Unit 20F",
-    "539 Vanderbilt Avenue Unit 17A",
-    "The Axel - 539 Vanderbilt Avenue Unit 17A"
-  ],
+  "https://fifthave.org/re-rental-availabilities/": [],
   "https://mgnyconsulting.com/listings/": [
     "1111 Foster Avenue",
     "1950 Hobart Avenue",
