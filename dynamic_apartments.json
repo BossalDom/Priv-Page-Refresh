@@ -1,7 +1,13 @@
 {
   "https://afny.org/re-rentals": [],
   "https://iaffordny.com/re-rentals": [],
-  "https://fifthave.org/re-rental-availabilities/": [],
+  "https://fifthave.org/re-rental-availabilities/": [
+    "3 Eleven 11th Avenue Unit 330",
+    "539 Vanderbilt Avenue Unit 16A",
+    "539 Vanderbilt Avenue Unit 3F",
+    "The Axel - 539 Vanderbilt Avenue Unit 16A",
+    "The Axel - 539 Vanderbilt Avenue Unit 3F"
+  ],
   "https://mgnyconsulting.com/listings/": [
     "1777 Weeks Avenue",
     "2442 Ocean Avenue",
@@ -67,7 +73,8 @@
     "37-05 30th Street - Unit 205",
     "37-05 30th Street - Unit 215",
     "4656 Park Avenue - Unit 3A",
-    "599 Prospect Avenue - Unit 1B"
+    "599 Prospect Avenue - Unit 1B",
+    "800 Empire Blvd - Unit 5C"
   ],
   "https://www.clintonmanagement.com/availabilities/affordable/": [],
   "https://east-village-homes-owner-llc.rentcafewebsite.com/": [],
