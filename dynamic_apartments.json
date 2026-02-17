@@ -1,6 +1,19 @@
 {
   "https://afny.org/re-rentals": [],
-  "https://iaffordny.com/re-rentals": [],
+  "https://iaffordny.com/re-rentals": [
+    "13 Garden Street Unit 3B",
+    "131 Concord Street",
+    "1420 Stebbins avenue",
+    "1800 Ocean Avenue Unit 2D",
+    "2069 HONEYWELL AVENUE Unit 5E",
+    "21 Mt Hope Place Unit B5",
+    "2783 Webb Avenue Unit 5A",
+    "3128 Henry Hudson Pkwy Unit 307",
+    "319 Lenox Road Unit 2D",
+    "428 Wythe Avenue Unit 305",
+    "50 Clifford Place Unit 3D",
+    "83-67 116th Street Unit 303"
+  ],
   "https://fifthave.org/re-rental-availabilities/": [
     "3 Eleven 11th Avenue Unit 330",
     "539 Vanderbilt Avenue Unit 16A",
