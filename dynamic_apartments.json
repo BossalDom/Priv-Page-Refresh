@@ -1,19 +1,6 @@
 {
   "https://afny.org/re-rentals": [],
-  "https://iaffordny.com/re-rentals": [
-    "13 Garden Street Unit 3B",
-    "131 Concord Street",
-    "1420 Stebbins avenue",
-    "1800 Ocean Avenue Unit 2D",
-    "2069 HONEYWELL AVENUE Unit 5E",
-    "21 Mt Hope Place Unit B5",
-    "2783 Webb Avenue Unit 5A",
-    "3128 Henry Hudson Pkwy Unit 307",
-    "319 Lenox Road Unit 2D",
-    "428 Wythe Avenue Unit 305",
-    "50 Clifford Place Unit 3D",
-    "83-67 116th Street Unit 303"
-  ],
+  "https://iaffordny.com/re-rentals": [],
   "https://fifthave.org/re-rental-availabilities/": [
     "3 Eleven 11th Avenue Unit 330",
     "539 Vanderbilt Avenue Unit 16A",
@@ -80,14 +67,15 @@
     "Washington Mews - 89 Murray Street"
   ],
   "https://residenewyork.com/property-status/open-market/": [
+    "137-20 45 Avenue - Unit 1K",
     "137-20 45 Avenue - Unit 1M",
+    "137-20 45 Avenue - Unit 6Y",
+    "205 Beach 29th Street - Unit 2D",
     "246 West 150th Street - Unit 1F",
-    "35 Kingston Avenue - Unit 403",
+    "2817 Atlantic Avenue - Unit 4D",
     "37-05 30th Street - Unit 205",
     "37-05 30th Street - Unit 215",
     "4656 Park Avenue - Unit 3A",
-    "599 Prospect Avenue - Unit 1B",
-    "698 Empire Blvd - Unit 201",
     "867 Dekalb Ave - Unit 3E"
   ],
   "https://www.clintonmanagement.com/availabilities/affordable/": [],
