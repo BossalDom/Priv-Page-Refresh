@@ -14,7 +14,13 @@
     "50 Clifford Place Unit 3D",
     "83-67 116th Street Unit 303"
   ],
-  "https://fifthave.org/re-rental-availabilities/": [],
+  "https://fifthave.org/re-rental-availabilities/": [
+    "3 Eleven 11th Avenue Unit 330",
+    "539 Vanderbilt Avenue Unit 16A",
+    "539 Vanderbilt Avenue Unit 3F",
+    "The Axel - 539 Vanderbilt Avenue Unit 16A",
+    "The Axel - 539 Vanderbilt Avenue Unit 3F"
+  ],
   "https://mgnyconsulting.com/listings/": [
     "1777 Weeks Avenue",
     "2442 Ocean Avenue",
@@ -78,11 +84,11 @@
     "137-20 45 Avenue - Unit 1M",
     "137-20 45 Avenue - Unit 6Y",
     "205 Beach 29th Street - Unit 2D",
+    "224 West 124th Street - Unit 1210",
     "246 West 150th Street - Unit 1F",
     "2817 Atlantic Avenue - Unit 4D",
     "37-05 30th Street - Unit 205",
     "37-05 30th Street - Unit 215",
-    "4656 Park Avenue - Unit 3A",
     "867 Dekalb Ave - Unit 3E"
   ],
   "https://www.clintonmanagement.com/availabilities/affordable/": [],
