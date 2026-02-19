@@ -1,6 +1,7 @@
 {
   "https://afny.org/re-rentals": [],
   "https://iaffordny.com/re-rentals": [
+    "103-41 120th Street Unit 2B",
     "13 Garden Street Unit 3B",
     "131 Concord Street",
     "1420 Stebbins avenue",
@@ -15,7 +16,13 @@
     "83-67 116th Street Unit 303",
     "855 Dekalb Avenue Unit 4A"
   ],
-  "https://fifthave.org/re-rental-availabilities/": [],
+  "https://fifthave.org/re-rental-availabilities/": [
+    "3 Eleven 11th Avenue Unit 330",
+    "539 Vanderbilt Avenue Unit 16A",
+    "539 Vanderbilt Avenue Unit 3F",
+    "The Axel - 539 Vanderbilt Avenue Unit 16A",
+    "The Axel - 539 Vanderbilt Avenue Unit 3F"
+  ],
   "https://mgnyconsulting.com/listings/": [
     "1777 Weeks Avenue",
     "2442 Ocean Avenue",
